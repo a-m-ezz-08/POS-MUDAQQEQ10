@@ -275,6 +275,12 @@ export const SETTINGS_SECTION_MAP: Record<SettingsSectionId, SettingsSectionMeta
     return acc;
   }, {} as Record<SettingsSectionId, SettingsSectionMeta>);
 
+export function isValidSettingsSectionId(
+  value: string | null | undefined
+): value is SettingsSectionId {
+  return Boolean(value && Object.prototype.hasOwnProperty.call(SETTINGS_SECTION_MAP, value));
+}
+
 export function getVisibleSettingsSections(
   perms: SettingsPermissionSnapshot
 ): SettingsSectionMeta[] {

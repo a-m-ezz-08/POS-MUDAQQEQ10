@@ -262,7 +262,9 @@ export default function App() {
     return resolvePathToTarget(window.location.pathname, user, bootFeatureFlags).tab;
   });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
+    () => currentPage === 'pos' || currentPage === 'settings'
+  );
 
   // مسار صفحة الصنف المستقلة (/items/new أو /items/:id)
   const [itemRoute, setItemRoute] = useState<
@@ -290,9 +292,9 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isSettingsDirty]);
 
-  // في صفحة POS: تتقفل القائمة الجانبية تلقائياً لتكون شريط أيقونات 64px، وعند الخروج تعود لطبيعتها
+  // في صفحتي POS وإعدادات البرنامج: تُعرض القائمة الجانبية بالحالة المدمجة ذات الأيقونات فقط (64px)، وعند الخروج لصفحة أخرى تعود لطبيعتها
   useEffect(() => {
-    if (currentPage === 'pos') {
+    if (currentPage === 'pos' || currentPage === 'settings') {
       setIsSidebarCollapsed(true);
     } else {
       setIsSidebarCollapsed(false);
@@ -398,7 +400,9 @@ export default function App() {
     }
     if (currentPage === 'settings' && isSettingsDirty) {
       const normalizedTarget = normalizeNavigationTarget(page, tab, user, featureFlags);
-      const isSameSettingsTab = normalizedTarget.page === 'settings' && normalizedTarget.tab === currentTab;
+      const isSameSettingsTab =
+        normalizedTarget.page === 'settings' &&
+        (!normalizedTarget.tab || normalizedTarget.tab === currentTab);
       if (!isSameSettingsTab) {
         setPendingNavConfirm({
           open: true,

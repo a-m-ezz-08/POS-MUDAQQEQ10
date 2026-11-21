@@ -99,7 +99,9 @@ import {
   SettingsSectionId,
   SettingsPermissionSnapshot,
   SETTINGS_SECTION_MAP,
+  isValidSettingsSectionId,
   getVisibleSettingsSections,
+  resolveFirstAllowedSection,
   resolveSectionFromInitialTab
 } from '../components/settings/settingsSections';
 import {
@@ -785,43 +787,74 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     [permSnapshot]
   );
 
-  const [activeSection, setActiveSection] = useState<SettingsSectionId>(() =>
-    resolveSectionFromInitialTab(
-      initialTab,
-      {
-        canManageCompany,
-        canManageUiScale,
-        canManageDisplay,
-        canManageSalesRules,
-        canManagePrint,
-        canManageInvoiceNumbering,
-        canManageLabelPrint,
-        canManageVisitorDisplay,
-        canManageNegativeStock,
-        canManageBankLink,
-        canManageIntegration,
-        canManageBackup,
-        canManageReset,
-        canManageShortcuts,
-        canManageUsers,
-        salesOnlyCommitted
-      },
-      typeof window !== 'undefined' ? window.location.hash : undefined
-    )
+  const readSectionFromSearch = useCallback(
+    (perms: SettingsPermissionSnapshot): SettingsSectionId | null => {
+      if (typeof window === 'undefined') return null;
+      const param = new URLSearchParams(window.location.search).get('section');
+      if (isValidSettingsSectionId(param) && SETTINGS_SECTION_MAP[param].isVisible(perms)) {
+        return param;
+      }
+      return null;
+    },
+    []
   );
+
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>(() => {
+    const fromSearch = readSectionFromSearch(permSnapshot);
+    if (fromSearch) return fromSearch;
+    return resolveSectionFromInitialTab(
+      initialTab,
+      permSnapshot,
+      typeof window !== 'undefined' ? window.location.hash : undefined
+    );
+  });
   const backupSectionRef = useRef<HTMLDivElement | null>(null);
+  const prevInitialTabRef = useRef(initialTab);
+
+  const handleSelectSection = useCallback((nextSection: SettingsSectionId) => {
+    setActiveSection(nextSection);
+    if (typeof window !== 'undefined') {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('section', nextSection);
+        if (nextSection !== 'backup_reset' && url.hash === '#backup') {
+          url.hash = '';
+        }
+        const nextHref = `${url.pathname}${url.search}${url.hash}`;
+        const currHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (nextHref !== currHref) {
+          window.history.replaceState({}, '', nextHref);
+        }
+      } catch (_) {}
+    }
+  }, []);
 
   useEffect(() => {
-    if (initialTab) {
-      setActiveSection(
-        resolveSectionFromInitialTab(
-          initialTab,
-          permSnapshot,
-          typeof window !== 'undefined' ? window.location.hash : undefined
-        )
-      );
+    if (prevInitialTabRef.current !== initialTab) {
+      prevInitialTabRef.current = initialTab;
+      const fromSearch = readSectionFromSearch(permSnapshot);
+      if (fromSearch) {
+        setActiveSection(fromSearch);
+        return;
+      }
+      if (initialTab) {
+        setActiveSection(
+          resolveSectionFromInitialTab(
+            initialTab,
+            permSnapshot,
+            typeof window !== 'undefined' ? window.location.hash : undefined
+          )
+        );
+      }
     }
-  }, [initialTab, permSnapshot]);
+  }, [initialTab, permSnapshot, readSectionFromSearch]);
+
+  useEffect(() => {
+    const currentMeta = SETTINGS_SECTION_MAP[activeSection];
+    if (!currentMeta || !currentMeta.isVisible(permSnapshot)) {
+      setActiveSection(resolveFirstAllowedSection(permSnapshot));
+    }
+  }, [activeSection, permSnapshot]);
 
   // Helpers for initial domain snapshots
   const buildInitialCompany = (cfg: SystemConfig): CompanySettings => ({
@@ -3205,7 +3238,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         <SettingsSectionNav
           visibleSections={visibleSections}
           activeSection={activeSection}
-          onSelectSection={setActiveSection}
+          onSelectSection={handleSelectSection}
           sectionDirtyMap={sectionDirtyMap}
           usersCount={users.length}
         />

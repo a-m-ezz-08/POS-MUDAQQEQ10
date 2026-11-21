@@ -952,178 +952,200 @@ export const NAV_GROUPS: NavGroup[] = [
     ]
   },
 
-  // 12. إعدادات النظام والمظهر
+  // 12. إعدادات النظام (عنصر رئيسي مباشر بدون قوائم فرعية في القائمة الرئيسية)
   {
     id: 'settings',
-    labelAr: 'إعدادات النظام والمظهر',
-    labelEn: 'System & Appearance',
+    labelAr: 'إعدادات النظام',
+    labelEn: 'System Settings',
     icon: Settings,
-    permission: (user) =>
-      user?.role === 'designer' ||
-      hasPermission(user, 'settings.company_appearance') ||
-      hasPermission(user, 'settings.invoice_print') ||
-      hasPermission(user, 'settings.display_customization') ||
-      hasPermission(user, 'settings.sales_rules') ||
-      hasPermission(user, 'settings.ui_scale') ||
-      hasPermission(user, 'settings.system_integration') ||
-      hasPermission(user, 'settings.backup') ||
-      hasPermission(user, 'settings.bank_link') ||
-      hasPermission(user, 'settings.bank_templates') ||
-      hasPermission(user, 'settings.reset_operations') ||
-      hasPermission(user, 'settings.factory_reset') ||
-      hasPermission(user, 'settings.negative_stock') ||
-      hasPermission(user, 'settings.visitor_display') ||
-      hasPermission(user, 'settings.label_print') ||
-      hasPermission(user, 'settings.invoice_numbering'),
+    permission: hasAnySettingsPermission,
     subItems: [
       {
-        id: 'settings-company',
+        id: 'settings-main',
         page: 'settings',
-        tab: 'company',
-        path: '/settings/company',
-        labelAr: 'بيانات المنشأة',
-        labelEn: 'Establishment Info',
-        icon: Building2,
-        permission: (user) => user?.role === 'designer' || hasPermission(user, 'settings.company_appearance')
-      },
-      {
-        id: 'settings-appearance',
-        page: 'settings',
-        tab: 'appearance',
-        path: '/settings/appearance',
-        labelAr: 'المظهر والحجم',
-        labelEn: 'Appearance & Scale',
-        icon: Palette,
-        permission: (user) =>
-          user?.role === 'designer' ||
-          hasPermission(user, 'settings.company_appearance') ||
-          hasPermission(user, 'settings.ui_scale') ||
-          hasPermission(user, 'settings.display_customization')
-      },
-      {
-        id: 'settings-sales',
-        page: 'settings',
-        tab: 'sales',
-        path: '/settings/sales',
-        labelAr: 'البيع ونقطة البيع',
-        labelEn: 'Sales & POS',
-        icon: ShoppingCart,
-        permission: (user) =>
-          user?.role === 'designer' ||
-          hasPermission(user, 'settings.sales_rules') ||
-          hasPermission(user, 'settings.display_customization') ||
-          hasPermission(user, 'settings.company_appearance')
-      },
-      {
-        id: 'settings-visitor',
-        page: 'settings',
-        tab: 'visitor',
-        path: '/settings/visitor',
-        labelAr: 'شاشة الزوار',
-        labelEn: 'Visitor Display',
-        icon: Eye,
-        permission: (user) =>
-          user?.role === 'designer' || hasPermission(user, 'settings.visitor_display')
-      },
-      {
-        id: 'settings-stock',
-        page: 'settings',
-        tab: 'stock',
-        path: '/settings/stock',
-        labelAr: 'الأصناف والمخزون',
-        labelEn: 'Items & Inventory',
-        icon: Package,
-        permission: (user) =>
-          user?.role === 'designer' ||
-          hasPermission(user, 'settings.negative_stock') ||
-          hasPermission(user, 'settings.display_customization')
-      },
-      {
-        id: 'settings-print',
-        page: 'settings',
-        tab: 'print',
-        path: '/settings/print',
-        labelAr: 'الفواتير والطباعة',
-        labelEn: 'Invoice & Print Settings',
-        icon: Printer,
-        permission: (user) =>
-          user?.role === 'designer' ||
-          hasPermission(user, 'settings.invoice_print') ||
-          hasPermission(user, 'settings.invoice_numbering')
-      },
-      {
-        id: 'settings-labels',
-        page: 'settings',
-        tab: 'labels',
-        path: '/settings/labels',
-        labelAr: 'طابعة الباركود',
-        labelEn: 'Barcode Label Printer',
-        icon: Printer,
-        permission: (user) => user?.role === 'designer' || hasPermission(user, 'settings.label_print')
-      },
-      {
-        id: 'settings-tax',
-        page: 'settings',
-        tab: 'tax',
-        path: '/settings/tax',
-        labelAr: 'الضريبة والعمولة',
-        labelEn: 'Tax & Commissions',
-        icon: Percent,
-        permission: (user) => user?.role === 'designer' || hasPermission(user, 'settings.company_appearance')
-      },
-      {
-        id: 'settings-bank-link',
-        page: 'settings',
-        tab: 'bank_link',
-        path: '/settings/bank-link',
-        labelAr: 'الخزن المربوطة بالبنك',
-        labelEn: 'Bank-Linked Cashboxes',
-        icon: Landmark,
-        permission: (user) =>
-          user?.role === 'designer' ||
-          hasPermission(user, 'settings.bank_link')
-      },
-      {
-        id: 'settings-integration',
-        page: 'settings',
-        tab: 'integration',
-        path: '/settings/integration',
-        labelAr: 'قاعدة البيانات والنسخ الاحتياطي',
-        labelEn: 'Database & Backup',
-        icon: Link,
-        permission: (user) =>
-          user?.role === 'designer' ||
-          hasPermission(user, 'settings.system_integration') ||
-          hasPermission(user, 'settings.backup') ||
-          hasPermission(user, 'settings.reset_operations') ||
-          hasPermission(user, 'settings.factory_reset')
-      },
-      {
-        id: 'settings-shortcuts',
-        page: 'settings',
-        tab: 'shortcuts',
-        path: '/settings/shortcuts',
-        labelAr: 'اختصارات لوحة المفاتيح',
-        labelEn: 'Keyboard Shortcuts',
-        icon: Keyboard,
-        permission: (user) =>
-          user?.role === 'designer' ||
-          hasPermission(user, 'settings.company_appearance') ||
-          hasPermission(user, 'settings.display_customization') ||
-          hasPermission(user, 'settings.sales_rules') ||
-          hasPermission(user, 'settings.invoice_print') ||
-          hasPermission(user, 'settings.system_integration') ||
-          hasPermission(user, 'settings.backup') ||
-          hasPermission(user, 'settings.negative_stock') ||
-          hasPermission(user, 'settings.visitor_display') ||
-          hasPermission(user, 'settings.label_print') ||
-          hasPermission(user, 'settings.invoice_numbering')
+        path: '/settings',
+        labelAr: 'إعدادات النظام',
+        labelEn: 'System Settings',
+        icon: Settings,
+        permission: hasAnySettingsPermission
       }
     ]
   }
 ];
 
+function hasAnySettingsPermission(user: UserAccount | null): boolean {
+  return (
+    user?.role === 'designer' ||
+    hasPermission(user, 'settings.company_appearance') ||
+    hasPermission(user, 'settings.invoice_print') ||
+    hasPermission(user, 'settings.display_customization') ||
+    hasPermission(user, 'settings.sales_rules') ||
+    hasPermission(user, 'settings.ui_scale') ||
+    hasPermission(user, 'settings.system_integration') ||
+    hasPermission(user, 'settings.backup') ||
+    hasPermission(user, 'settings.bank_link') ||
+    hasPermission(user, 'settings.bank_templates') ||
+    hasPermission(user, 'settings.reset_operations') ||
+    hasPermission(user, 'settings.factory_reset') ||
+    hasPermission(user, 'settings.negative_stock') ||
+    hasPermission(user, 'settings.visitor_display') ||
+    hasPermission(user, 'settings.label_print') ||
+    hasPermission(user, 'settings.invoice_numbering')
+  );
+}
+
+/**
+ * المسارات المباشرة لأقسام إعدادات النظام: لا تُعرض كقوائم فرعية في القائمة الرئيسية،
+ * لكنها محفوظة لدعم الروابط المباشرة والقديمة والتنقل الداخلي من بقية الصفحات بنفس الصلاحيات.
+ */
+export const SETTINGS_DIRECT_ROUTES: NavSubItem[] = [
+  {
+    id: 'settings-company',
+    page: 'settings',
+    tab: 'company',
+    path: '/settings/company',
+    labelAr: 'بيانات المنشأة',
+    labelEn: 'Establishment Info',
+    icon: Building2,
+    permission: (user) => user?.role === 'designer' || hasPermission(user, 'settings.company_appearance')
+  },
+  {
+    id: 'settings-appearance',
+    page: 'settings',
+    tab: 'appearance',
+    path: '/settings/appearance',
+    labelAr: 'المظهر والحجم',
+    labelEn: 'Appearance & Scale',
+    icon: Palette,
+    permission: (user) =>
+      user?.role === 'designer' ||
+      hasPermission(user, 'settings.company_appearance') ||
+      hasPermission(user, 'settings.ui_scale') ||
+      hasPermission(user, 'settings.display_customization')
+  },
+  {
+    id: 'settings-sales',
+    page: 'settings',
+    tab: 'sales',
+    path: '/settings/sales',
+    labelAr: 'البيع ونقطة البيع',
+    labelEn: 'Sales & POS',
+    icon: ShoppingCart,
+    permission: (user) =>
+      user?.role === 'designer' ||
+      hasPermission(user, 'settings.sales_rules') ||
+      hasPermission(user, 'settings.display_customization') ||
+      hasPermission(user, 'settings.company_appearance')
+  },
+  {
+    id: 'settings-visitor',
+    page: 'settings',
+    tab: 'visitor',
+    path: '/settings/visitor',
+    labelAr: 'شاشة الزوار',
+    labelEn: 'Visitor Display',
+    icon: Eye,
+    permission: (user) =>
+      user?.role === 'designer' || hasPermission(user, 'settings.visitor_display')
+  },
+  {
+    id: 'settings-stock',
+    page: 'settings',
+    tab: 'stock',
+    path: '/settings/stock',
+    labelAr: 'الأصناف والمخزون',
+    labelEn: 'Items & Inventory',
+    icon: Package,
+    permission: (user) =>
+      user?.role === 'designer' ||
+      hasPermission(user, 'settings.negative_stock') ||
+      hasPermission(user, 'settings.display_customization')
+  },
+  {
+    id: 'settings-print',
+    page: 'settings',
+    tab: 'print',
+    path: '/settings/print',
+    labelAr: 'الفواتير والطباعة',
+    labelEn: 'Invoice & Print Settings',
+    icon: Printer,
+    permission: (user) =>
+      user?.role === 'designer' ||
+      hasPermission(user, 'settings.invoice_print') ||
+      hasPermission(user, 'settings.invoice_numbering')
+  },
+  {
+    id: 'settings-labels',
+    page: 'settings',
+    tab: 'labels',
+    path: '/settings/labels',
+    labelAr: 'طابعة الباركود',
+    labelEn: 'Barcode Label Printer',
+    icon: Printer,
+    permission: (user) => user?.role === 'designer' || hasPermission(user, 'settings.label_print')
+  },
+  {
+    id: 'settings-tax',
+    page: 'settings',
+    tab: 'tax',
+    path: '/settings/tax',
+    labelAr: 'الضريبة والعمولة',
+    labelEn: 'Tax & Commissions',
+    icon: Percent,
+    permission: (user) => user?.role === 'designer' || hasPermission(user, 'settings.company_appearance')
+  },
+  {
+    id: 'settings-bank-link',
+    page: 'settings',
+    tab: 'bank_link',
+    path: '/settings/bank-link',
+    labelAr: 'الخزن المربوطة بالبنك',
+    labelEn: 'Bank-Linked Cashboxes',
+    icon: Landmark,
+    permission: (user) =>
+      user?.role === 'designer' ||
+      hasPermission(user, 'settings.bank_link')
+  },
+  {
+    id: 'settings-integration',
+    page: 'settings',
+    tab: 'integration',
+    path: '/settings/integration',
+    labelAr: 'قاعدة البيانات والنسخ الاحتياطي',
+    labelEn: 'Database & Backup',
+    icon: Link,
+    permission: (user) =>
+      user?.role === 'designer' ||
+      hasPermission(user, 'settings.system_integration') ||
+      hasPermission(user, 'settings.backup') ||
+      hasPermission(user, 'settings.reset_operations') ||
+      hasPermission(user, 'settings.factory_reset')
+  },
+  {
+    id: 'settings-shortcuts',
+    page: 'settings',
+    tab: 'shortcuts',
+    path: '/settings/shortcuts',
+    labelAr: 'اختصارات لوحة المفاتيح',
+    labelEn: 'Keyboard Shortcuts',
+    icon: Keyboard,
+    permission: (user) =>
+      user?.role === 'designer' ||
+      hasPermission(user, 'settings.company_appearance') ||
+      hasPermission(user, 'settings.display_customization') ||
+      hasPermission(user, 'settings.sales_rules') ||
+      hasPermission(user, 'settings.invoice_print') ||
+      hasPermission(user, 'settings.system_integration') ||
+      hasPermission(user, 'settings.backup') ||
+      hasPermission(user, 'settings.negative_stock') ||
+      hasPermission(user, 'settings.visitor_display') ||
+      hasPermission(user, 'settings.label_print') ||
+      hasPermission(user, 'settings.invoice_numbering')
+  }
+];
+
 export const ALL_NAV_SUB_ITEMS: NavSubItem[] = NAV_GROUPS.flatMap((g) => g.subItems);
+const ALL_ROUTE_SUB_ITEMS: NavSubItem[] = [...ALL_NAV_SUB_ITEMS, ...SETTINGS_DIRECT_ROUTES];
 
 /**
  * تحويل المسارات القديمة أو المختصرة إلى الصفحة المقابلة ليتم اختيار أول مسار فرعي متاح لصلاحيات المستخدم
@@ -1147,7 +1169,7 @@ export const LEGACY_PAGE_REDIRECTS: Record<string, { page: PageType; tab?: strin
 
 export const LEGACY_PATH_REDIRECTS: Record<string, string> = {
   '/': '/dashboard',
-  '/settings': '/settings/company',
+  '/settings': '/settings',
   '/settings/backup': '/settings/integration#backup',
   '/settings/display': '/settings/sales',
   '/settings/ui-scale': '/settings/appearance',
@@ -1239,7 +1261,7 @@ export function isVisitorScreenOnlyUser(user: UserAccount | null | undefined): b
   if (!user) return false;
   if (user.role === 'designer' || Boolean(user.isOwner)) return false;
   if (!hasPermission(user, 'visitor.display')) return false;
-  const hasAnyOtherPageAccess = ALL_NAV_SUB_ITEMS.some(
+  const hasAnyOtherPageAccess = ALL_ROUTE_SUB_ITEMS.some(
     (sub) => sub.page !== 'visitor' && isSubItemVisible(sub, user)
   );
   return !hasAnyOtherPageAccess;
@@ -1285,6 +1307,10 @@ export function findGroupForPage(page: PageType, tab?: string): NavGroup | undef
     );
     if (exactMatch) return exactMatch;
   }
+  const ownGroup = NAV_GROUPS.find(
+    (g) => g.id === page && g.subItems.some((s) => s.page === page)
+  );
+  if (ownGroup) return ownGroup;
   return NAV_GROUPS.find((g) => g.subItems.some((s) => s.page === page));
 }
 
@@ -1301,7 +1327,7 @@ export function findSubItemForTarget(
   const groupCandidates = matchingGroup
     ? matchingGroup.subItems.filter((s) => s.page === page)
     : [];
-  const otherCandidates = ALL_NAV_SUB_ITEMS.filter(
+  const otherCandidates = ALL_ROUTE_SUB_ITEMS.filter(
     (s) => s.page === page && !groupCandidates.includes(s)
   );
   const candidates = [...groupCandidates, ...otherCandidates].filter((s) =>
@@ -1448,8 +1474,8 @@ export function resolvePathToTarget(
     };
   }
 
-  // 2. مطابقة أي مسار مستقل معرف في NAV_GROUPS أولاً (حتى لا تتصادم مسارات /items/* مع /items/:id)
-  const matchedSub = ALL_NAV_SUB_ITEMS.find((s) => s.path === trimmed);
+  // 2. مطابقة أي مسار مستقل معرف في NAV_GROUPS أو SETTINGS_DIRECT_ROUTES أولاً (حتى لا تتصادم مسارات /items/* مع /items/:id)
+  const matchedSub = ALL_ROUTE_SUB_ITEMS.find((s) => s.path === trimmed);
   if (matchedSub) {
     if (isPageAllowedByFeatureModes(matchedSub.page, matchedSub.tab, flags)) {
       return {
