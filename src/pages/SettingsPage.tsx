@@ -95,6 +95,17 @@ import { UserModal } from '../components/UserModal';
 import { ReceiptPrintArea } from '../components/ReceiptPrintArea';
 import { SystemResetSection } from '../components/settings/SystemResetSection';
 import { BankLinkSection } from '../components/settings/BankLinkSection';
+import {
+  SettingsSectionId,
+  SettingsPermissionSnapshot,
+  SETTINGS_SECTION_MAP,
+  getVisibleSettingsSections,
+  resolveSectionFromInitialTab
+} from '../components/settings/settingsSections';
+import {
+  SettingsSectionNav,
+  SettingsSectionHeader
+} from '../components/settings/SettingsSectionNav';
 import { PosVisibleCategoriesPicker } from '../components/pos/PosVisibleCategoriesPicker';
 import {
   selectBackupDirectory,
@@ -162,28 +173,6 @@ export type SettingsTab =
   | 'ui_scale'
   | 'bank_link'
   | 'shortcuts';
-
-type CanonicalSettingsTab =
-  | 'company'
-  | 'appearance'
-  | 'sales'
-  | 'visitor'
-  | 'stock'
-  | 'print'
-  | 'labels'
-  | 'tax'
-  | 'users'
-  | 'integration'
-  | 'bank_link'
-  | 'shortcuts';
-
-function normalizeSettingsTab(tab?: SettingsTab): CanonicalSettingsTab {
-  if (!tab || tab === 'company') return 'company';
-  if (tab === 'backup') return 'integration';
-  if (tab === 'display') return 'sales';
-  if (tab === 'ui_scale') return 'appearance';
-  return tab;
-}
 
 export interface ThemeDefinition {
   id: AppTheme;
@@ -714,15 +703,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onDirtyChange,
   onRegisterRevert
 }) => {
-  const [activeTab, setActiveTab] = useState<CanonicalSettingsTab>(() => normalizeSettingsTab(initialTab));
-  const backupSectionRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (initialTab) {
-      setActiveTab(normalizeSettingsTab(initialTab));
-    }
-  }, [initialTab]);
-
   // Permissions check
   const isOwner = currentUser.role === 'designer' || Boolean(currentUser.isOwner);
   const canManageCompany = isOwner || hasPermission(currentUser, 'settings.company_appearance');
@@ -757,6 +737,91 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     canManageBackup ||
     canManageNegativeStock ||
     canManageVisitorDisplay;
+
+  const salesOnlyCommitted = Boolean(config.salesRules?.salesOnlyMode);
+  const platformsCommitted = (config.salesRules?.platformsEnabled ?? true) !== false && !salesOnlyCommitted;
+
+  const permSnapshot: SettingsPermissionSnapshot = useMemo(
+    () => ({
+      canManageCompany,
+      canManageUiScale,
+      canManageDisplay,
+      canManageSalesRules,
+      canManagePrint,
+      canManageInvoiceNumbering,
+      canManageLabelPrint,
+      canManageVisitorDisplay,
+      canManageNegativeStock,
+      canManageBankLink,
+      canManageIntegration,
+      canManageBackup,
+      canManageReset,
+      canManageShortcuts,
+      canManageUsers,
+      salesOnlyCommitted
+    }),
+    [
+      canManageCompany,
+      canManageUiScale,
+      canManageDisplay,
+      canManageSalesRules,
+      canManagePrint,
+      canManageInvoiceNumbering,
+      canManageLabelPrint,
+      canManageVisitorDisplay,
+      canManageNegativeStock,
+      canManageBankLink,
+      canManageIntegration,
+      canManageBackup,
+      canManageReset,
+      canManageShortcuts,
+      canManageUsers,
+      salesOnlyCommitted
+    ]
+  );
+
+  const visibleSections = useMemo(
+    () => getVisibleSettingsSections(permSnapshot),
+    [permSnapshot]
+  );
+
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>(() =>
+    resolveSectionFromInitialTab(
+      initialTab,
+      {
+        canManageCompany,
+        canManageUiScale,
+        canManageDisplay,
+        canManageSalesRules,
+        canManagePrint,
+        canManageInvoiceNumbering,
+        canManageLabelPrint,
+        canManageVisitorDisplay,
+        canManageNegativeStock,
+        canManageBankLink,
+        canManageIntegration,
+        canManageBackup,
+        canManageReset,
+        canManageShortcuts,
+        canManageUsers,
+        salesOnlyCommitted
+      },
+      typeof window !== 'undefined' ? window.location.hash : undefined
+    )
+  );
+  const backupSectionRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveSection(
+        resolveSectionFromInitialTab(
+          initialTab,
+          permSnapshot,
+          typeof window !== 'undefined' ? window.location.hash : undefined
+        )
+      );
+    }
+  }, [initialTab, permSnapshot]);
 
   // Helpers for initial domain snapshots
   const buildInitialCompany = (cfg: SystemConfig): CompanySettings => ({
@@ -927,9 +992,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [committedStock, setCommittedStock] = useState<StockSettings>(() => buildInitialStock(config));
   const [isConfirmingNegativeStock, setIsConfirmingNegativeStock] = useState(false);
   const [isConfirmingNegativeTransfer, setIsConfirmingNegativeTransfer] = useState(false);
-
-  const salesOnlyCommitted = Boolean(config.salesRules?.salesOnlyMode);
-  const platformsCommitted = (config.salesRules?.platformsEnabled ?? true) !== false && !salesOnlyCommitted;
 
   const normalizeClientSalesRules = (raw?: SalesRules): SalesRules => {
     const merged: SalesRules = { ...DEFAULT_SALES_RULES, ...(raw || {}) };
@@ -1292,10 +1354,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     const committedNormCustomerId =
       committedSalesRules.customerSelection === 'fixed' ? committedSalesRules.defaultCustomerId : '';
 
-    const salesRulesDirty =
+    const featureModesDirty =
       Boolean(salesRules.salesOnlyMode) !== Boolean(committedSalesRules.salesOnlyMode) ||
       (salesRules.platformsEnabled !== false && !salesRules.salesOnlyMode) !==
-        (committedSalesRules.platformsEnabled !== false && !committedSalesRules.salesOnlyMode) ||
+        (committedSalesRules.platformsEnabled !== false && !committedSalesRules.salesOnlyMode);
+
+    const posSalesRulesDirty =
       salesRules.defaultSaleMode !== committedSalesRules.defaultSaleMode ||
       salesRules.platformSelection !== committedSalesRules.platformSelection ||
       salesNormPlatformId !== committedNormPlatformId ||
@@ -1305,16 +1369,24 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       Boolean(salesRules.allowBelowCostSale) !== Boolean(committedSalesRules.allowBelowCostSale) ||
       Boolean(salesRules.platformAlwaysCredit) !== Boolean(committedSalesRules.platformAlwaysCredit);
 
-    const salesDisplayDirty =
+    const salesRulesDirty = featureModesDirty || posSalesRulesDirty;
+
+    const posSalesDisplayDirty =
       Boolean(displaySettings.confirmInvoiceBeforeSave) !== Boolean(committedDisplay.confirmInvoiceBeforeSave) ||
       (displaySettings.autoFillCashPaid ?? true) !== (committedDisplay.autoFillCashPaid ?? true) ||
-      !areCategoryIdListsEqual(displaySettings.posVisibleCategoryIds, committedDisplay.posVisibleCategoryIds) ||
+      !areCategoryIdListsEqual(displaySettings.posVisibleCategoryIds, committedDisplay.posVisibleCategoryIds);
+
+    const barcodeOrderingDirty =
       (displaySettings.barcodeScanMode === 'edit_quantity' ? 'edit_quantity' : 'increment') !==
         (committedDisplay.barcodeScanMode === 'edit_quantity' ? 'edit_quantity' : 'increment') ||
-      !areLatestItemFirstEqual(displaySettings.latestItemFirst, committedDisplay.latestItemFirst) ||
+      !areLatestItemFirstEqual(displaySettings.latestItemFirst, committedDisplay.latestItemFirst);
+
+    const posCustomerDisplayDirty =
       (displaySettings.posShowCustomerAddress ?? true) !== (committedDisplay.posShowCustomerAddress ?? true) ||
       (displaySettings.posShowCustomerPhone ?? true) !== (committedDisplay.posShowCustomerPhone ?? true) ||
       (displaySettings.posShowCustomerBalance ?? true) !== (committedDisplay.posShowCustomerBalance ?? true);
+
+    const salesDisplayDirty = posSalesDisplayDirty || barcodeOrderingDirty || posCustomerDisplayDirty;
 
     const deliveryFeeDirty =
       Boolean(companySettings.enableDeliveryFee) !== Boolean(committedCompany.enableDeliveryFee);
@@ -1394,7 +1466,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       uiPrefsDirty,
       displayAppearanceDirty,
       sales: salesRulesDirty || salesDisplayDirty || deliveryFeeDirty,
+      featureModesDirty,
+      posSalesRulesDirty,
       salesRulesDirty,
+      posSalesDisplayDirty,
+      barcodeOrderingDirty,
+      posCustomerDisplayDirty,
       salesDisplayDirty,
       deliveryFeeDirty,
       visitor: visitorDirty,
@@ -1432,42 +1509,40 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     committedTax
   ]);
 
-  const isActiveTabDirty =
-    activeTab === 'company'
-      ? pageDiffs.company
-      : activeTab === 'appearance'
-      ? pageDiffs.appearance
-      : activeTab === 'sales'
-      ? pageDiffs.sales
-      : activeTab === 'visitor'
-      ? pageDiffs.visitor
-      : activeTab === 'stock'
-      ? pageDiffs.stock
-      : activeTab === 'print'
-      ? pageDiffs.print
-      : activeTab === 'labels'
-      ? pageDiffs.labels
-      : activeTab === 'tax'
-      ? pageDiffs.tax
-      : false;
+  const sectionDirtyMap: Partial<Record<SettingsSectionId, boolean>> = useMemo(
+    () => ({
+      company: pageDiffs.company,
+      appearance: pageDiffs.appearance,
+      pos_sales: pageDiffs.posSalesRulesDirty || pageDiffs.posSalesDisplayDirty,
+      barcode_ordering: pageDiffs.barcodeOrderingDirty,
+      pos_customer_display: pageDiffs.posCustomerDisplayDirty,
+      platforms_modes: pageDiffs.featureModesDirty,
+      delivery: pageDiffs.deliveryFeeDirty,
+      visitor: pageDiffs.visitor,
+      stock: pageDiffs.stock,
+      print: pageDiffs.print,
+      labels: pageDiffs.labels,
+      tax: pageDiffs.tax
+    }),
+    [pageDiffs]
+  );
 
-  const isSaveBarSupportedTab =
-    activeTab === 'company' ||
-    activeTab === 'appearance' ||
-    activeTab === 'sales' ||
-    activeTab === 'visitor' ||
-    activeTab === 'stock' ||
-    activeTab === 'print' ||
-    activeTab === 'labels' ||
-    activeTab === 'tax';
+  const dirtySectionCount = useMemo(
+    () => Object.values(sectionDirtyMap).filter(Boolean).length,
+    [sectionDirtyMap]
+  );
+  const hasAnyDirty = dirtySectionCount > 0;
+  const activeSectionMeta =
+    SETTINGS_SECTION_MAP[activeSection] || visibleSections[0] || SETTINGS_SECTION_MAP.company;
+  const isSaveBarSupportedSection = activeSectionMeta.supportsUnifiedSaveBar;
 
   useEffect(() => {
-    onDirtyChange?.(isActiveTabDirty);
-  }, [isActiveTabDirty, onDirtyChange]);
+    onDirtyChange?.(hasAnyDirty);
+  }, [hasAnyDirty, onDirtyChange]);
 
   useEffect(() => {
     setSaveBarFeedback(null);
-  }, [activeTab]);
+  }, [activeSection]);
 
   // Live Preview handlers (no immediate DB persistence on Appearance tab)
   const handlePreviewTheme = (themeId: AppTheme) => {
@@ -1562,17 +1637,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     onRegisterRevert?.(handleRevertActiveTab);
   }, [handleRevertActiveTab, onRegisterRevert]);
 
-  // Unified Bottom Save Handler (Sequential per dirty domain, stops on first error)
+  // Unified Bottom Save Handler (Sequential per dirty domain across all sections, stops on first error)
   const handleUnifiedSave = async () => {
-    if (isSavingAll || !isActiveTabDirty) return;
+    if (isSavingAll || !hasAnyDirty) return;
     if (saveSuccessTimerRef.current) {
       window.clearTimeout(saveSuccessTimerRef.current);
       saveSuccessTimerRef.current = null;
     }
     setSaveBarFeedback(null);
 
-    // Pre-validate phone format on Company tab before hitting network
-    if (activeTab === 'company' && pageDiffs.contactDirty) {
+    // Pre-validate phone format on Company contact before hitting network
+    if (canManageCompany && pageDiffs.contactDirty) {
       const fields: Array<{ key: keyof ContactSettings; label: string }> = [
         { key: 'supportWhatsapp', label: 'واتساب الدعم الفني' },
         { key: 'supportPhone', label: 'هاتف الدعم الفني' },
@@ -1597,61 +1672,49 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       let runningDisplay = { ...committedDisplay };
       let runningInvoice = { ...committedInvoice };
 
-      if (activeTab === 'company') {
-        if (pageDiffs.companyIdentityDirty) {
-          const payload: CompanySettings = {
-            ...runningCompany,
-            storeName: companySettings.storeName,
-            brandTagline: companySettings.brandTagline,
-            logoUrl: companySettings.logoUrl,
-            taxNumber: companySettings.taxNumber,
-            commercialRecord: companySettings.commercialRecord,
-            phone: companySettings.phone,
-            email: companySettings.email,
-            address: companySettings.address,
-            inactivityTimeoutMinutes: normalizeInactivityTimeoutMinutes(companySettings.inactivityTimeoutMinutes)
-          };
-          const res = await api.saveCompanySettings(payload);
-          if (res && res.success === false) {
-            throw new Error((res as any).error || 'فشل حفظ بيانات المنشأة');
-          }
-          runningCompany = payload;
-          setCommittedCompany(payload);
+      const companyAppearanceDirty =
+        pageDiffs.themeDirty || pageDiffs.motionDirty || pageDiffs.fontDirty;
+      if (
+        canManageCompany &&
+        (pageDiffs.companyIdentityDirty || companyAppearanceDirty || pageDiffs.deliveryFeeDirty)
+      ) {
+        const payload: CompanySettings = {
+          ...runningCompany,
+          ...(pageDiffs.companyIdentityDirty
+            ? {
+                storeName: companySettings.storeName,
+                brandTagline: companySettings.brandTagline,
+                logoUrl: companySettings.logoUrl,
+                taxNumber: companySettings.taxNumber,
+                commercialRecord: companySettings.commercialRecord,
+                phone: companySettings.phone,
+                email: companySettings.email,
+                address: companySettings.address,
+                inactivityTimeoutMinutes: normalizeInactivityTimeoutMinutes(
+                  companySettings.inactivityTimeoutMinutes
+                )
+              }
+            : {}),
+          ...(companyAppearanceDirty
+            ? {
+                appTheme: previewTheme,
+                motionEnabled: currentMotion === 'on',
+                fontFamily: companySettings.fontFamily
+              }
+            : {}),
+          ...(pageDiffs.deliveryFeeDirty
+            ? {
+                enableDeliveryFee: Boolean(companySettings.enableDeliveryFee)
+              }
+            : {})
+        };
+        const res = await api.saveCompanySettings(payload);
+        if (res && res.success === false) {
+          throw new Error((res as any).error || 'فشل حفظ إعدادات المنشأة');
         }
-
-        if (pageDiffs.contactDirty) {
-          const res = await api.saveContactSettings({
-            supportWhatsapp: contactSettings.supportWhatsapp.trim(),
-            supportPhone: contactSettings.supportPhone.trim(),
-            salesWhatsapp: contactSettings.salesWhatsapp.trim(),
-            salesPhone: contactSettings.salesPhone.trim()
-          });
-          if (!res.success) {
-            throw new Error(res.error || 'تعذر حفظ بيانات التواصل');
-          }
-          const savedCt = res.settings || {
-            supportWhatsapp: contactSettings.supportWhatsapp.trim(),
-            supportPhone: contactSettings.supportPhone.trim(),
-            salesWhatsapp: contactSettings.salesWhatsapp.trim(),
-            salesPhone: contactSettings.salesPhone.trim()
-          };
-          setCommittedContact(savedCt);
-          setContactSettings(savedCt);
-        }
-      } else if (activeTab === 'appearance') {
-        if (pageDiffs.themeDirty || pageDiffs.motionDirty || pageDiffs.fontDirty) {
-          const payload: CompanySettings = {
-            ...runningCompany,
-            appTheme: previewTheme,
-            motionEnabled: currentMotion === 'on',
-            fontFamily: companySettings.fontFamily
-          };
-          const res = await api.saveCompanySettings(payload);
-          if (res && res.success === false) {
-            throw new Error((res as any).error || 'فشل حفظ إعدادات المظهر والخط والحركة');
-          }
-          runningCompany = payload;
-          setCommittedCompany(payload);
+        runningCompany = payload;
+        setCommittedCompany(payload);
+        if (companyAppearanceDirty) {
           setAppliedTheme(previewTheme);
           setCommittedMotion(currentMotion);
           try {
@@ -1662,162 +1725,163 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           onChangeMotion?.(currentMotion);
           applyFontPreview(payload.fontFamily);
         }
+      }
 
-        if (pageDiffs.uiPrefsDirty) {
-          handleSaveUiPrefs();
+      if (canManageCompany && pageDiffs.contactDirty) {
+        const res = await api.saveContactSettings({
+          supportWhatsapp: contactSettings.supportWhatsapp.trim(),
+          supportPhone: contactSettings.supportPhone.trim(),
+          salesWhatsapp: contactSettings.salesWhatsapp.trim(),
+          salesPhone: contactSettings.salesPhone.trim()
+        });
+        if (!res.success) {
+          throw new Error(res.error || 'تعذر حفظ بيانات التواصل');
         }
-
-        if (pageDiffs.displayAppearanceDirty) {
-          const payload: DisplaySettings = {
-            ...runningDisplay,
-            showItemImages: displaySettings.showItemImages,
-            posLayout: displaySettings.posLayout
-          };
-          const res = await api.saveDisplaySettings(payload);
-          if (res && res.success === false) {
-            throw new Error((res as any).error || 'فشل حفظ إعدادات عرض الأصناف');
-          }
-          runningDisplay = payload;
-          setCommittedDisplay(payload);
-        }
-      } else if (activeTab === 'sales') {
-        if (pageDiffs.salesRulesDirty) {
-          const nextSalesOnly = Boolean(salesRules.salesOnlyMode);
-          const nextPlatformsEnabled = nextSalesOnly ? false : salesRules.platformsEnabled !== false;
-          const res = await api.saveSalesRules({
-            platformsEnabled: nextPlatformsEnabled,
-            salesOnlyMode: nextSalesOnly,
-            defaultSaleMode:
-              !nextPlatformsEnabled && salesRules.defaultSaleMode === 'platform'
-                ? 'direct'
-                : salesRules.defaultSaleMode,
-            platformSelection: salesRules.platformSelection,
-            defaultPlatformId: salesRules.platformSelection === 'fixed' ? salesRules.defaultPlatformId : '',
-            customerSelection: salesRules.customerSelection,
-            defaultCustomerId: salesRules.customerSelection === 'fixed' ? salesRules.defaultCustomerId : '',
-            allowZeroPriceSale: salesRules.allowZeroPriceSale,
-            allowBelowCostSale: salesRules.allowBelowCostSale,
-            platformAlwaysCredit: Boolean(salesRules.platformAlwaysCredit)
-          });
-          if (!res.success || !res.rules) {
-            throw new Error(res.error || 'تعذر حفظ إعدادات البيع وقواعد السعر');
-          }
-          const savedNorm = normalizeClientSalesRules(res.rules);
-          setSalesRules(savedNorm);
-          setCommittedSalesRules(savedNorm);
-          try {
-            localStorage.setItem('mudaqqeq_sales_rules_cache_v1', JSON.stringify(savedNorm));
-          } catch (_) {}
-          onSalesRulesUpdated?.(savedNorm);
-        }
-
-        if (pageDiffs.salesDisplayDirty) {
-          const autoFillVal = displaySettings.autoFillCashPaid ?? true;
-          const nextPosVisibleCategoryIds = normalizeCatIdList(displaySettings.posVisibleCategoryIds);
-          const nextBarcodeScanMode =
-            displaySettings.barcodeScanMode === 'edit_quantity' ? 'edit_quantity' : 'increment';
-          const nextLatestItemFirst: LatestItemFirstSettings = normalizeLatestItemFirst(
-            displaySettings.latestItemFirst
-          );
-          if (canManageDisplay || !canManagePrint) {
-            const dispPayload: DisplaySettings = {
-              ...runningDisplay,
-              confirmInvoiceBeforeSave: displaySettings.confirmInvoiceBeforeSave,
-              autoFillCashPaid: autoFillVal,
-              ...(canManageDisplay
-                ? {
-                    posVisibleCategoryIds: nextPosVisibleCategoryIds,
-                    barcodeScanMode: nextBarcodeScanMode,
-                    latestItemFirst: nextLatestItemFirst,
-                    posShowCustomerAddress: displaySettings.posShowCustomerAddress ?? true,
-                    posShowCustomerPhone: displaySettings.posShowCustomerPhone ?? true,
-                    posShowCustomerBalance: displaySettings.posShowCustomerBalance ?? true
-                  }
-                : {})
-            };
-            const dispRes = await api.saveDisplaySettings(dispPayload);
-            if (dispRes && dispRes.success === false) {
-              throw new Error((dispRes as any).error || 'فشل حفظ إعدادات عرض شاشة البيع');
-            }
-            runningDisplay = dispPayload;
-            setCommittedDisplay(dispPayload);
-          }
-          const autoFillChanged = autoFillVal !== (committedInvoice.autoFillCashPaid ?? true);
-          if (canManagePrint && autoFillChanged) {
-            const invPayload: InvoicePrintSettings = {
-              ...runningInvoice,
-              autoFillCashPaid: autoFillVal
-            };
-            const invRes = await api.saveInvoicePrintSettings(invPayload);
-            if (invRes && invRes.success === false) {
-              throw new Error((invRes as any).error || 'فشل تحديث إعداد تعبئة المدفوع في الطباعة');
-            }
-            runningInvoice = invPayload;
-            setCommittedInvoice(invPayload);
-            if (!canManageDisplay) {
-              runningDisplay = { ...runningDisplay, autoFillCashPaid: autoFillVal };
-              setCommittedDisplay(runningDisplay);
-            }
-          }
-        }
-
-        if (pageDiffs.deliveryFeeDirty) {
-          const payload: CompanySettings = {
-            ...runningCompany,
-            enableDeliveryFee: Boolean(companySettings.enableDeliveryFee)
-          };
-          const res = await api.saveCompanySettings(payload);
-          if (res && res.success === false) {
-            throw new Error((res as any).error || 'فشل حفظ إعداد رسوم التوصيل');
-          }
-          runningCompany = payload;
-          setCommittedCompany(payload);
-        }
-      } else if (activeTab === 'stock') {
-        if (pageDiffs.stockPolicyDirty) {
-          const stockRes = await api.saveStockSettings({
-            allowNegativeStockSale: stockSettings.allowNegativeStockSale,
-            allowNegativeWarehouseTransfer: stockSettings.allowNegativeWarehouseTransfer
-          });
-          if (!stockRes.success) {
-            throw new Error((stockRes as any).error || 'فشل حفظ سياسة المخزون');
-          }
-          const nextStock = stockRes.settings || { ...stockSettings };
-          setStockSettings(nextStock);
-          setCommittedStock(nextStock);
-        }
-
-        if (pageDiffs.stockDisplayDirty) {
-          const payload: DisplaySettings = {
-            ...runningDisplay,
-            showStockQuantity: displaySettings.showStockQuantity,
-            showStockStatusBadge: displaySettings.showStockStatusBadge,
-            enableInlineEdit: displaySettings.enableInlineEdit
-          };
-          const res = await api.saveDisplaySettings(payload);
-          if (res && res.success === false) {
-            throw new Error((res as any).error || 'فشل حفظ إعدادات عرض المخزون');
-          }
-          runningDisplay = payload;
-          setCommittedDisplay(payload);
-        }
-      } else if (activeTab === 'print') {
-        const payload: InvoicePrintSettings = {
-          ...invoiceSettings,
-          autoFillCashPaid: runningInvoice.autoFillCashPaid
+        const savedCt = res.settings || {
+          supportWhatsapp: contactSettings.supportWhatsapp.trim(),
+          supportPhone: contactSettings.supportPhone.trim(),
+          salesWhatsapp: contactSettings.salesWhatsapp.trim(),
+          salesPhone: contactSettings.salesPhone.trim()
         };
-        const res = await api.saveInvoicePrintSettings(payload);
-        if (res && res.success === false) {
-          throw new Error((res as any).error || 'فشل حفظ إعدادات الفاتورة والطباعة');
+        setCommittedContact(savedCt);
+        setContactSettings(savedCt);
+      }
+
+      if (canManageUiScale && pageDiffs.uiPrefsDirty) {
+        handleSaveUiPrefs();
+      }
+
+      if (canManageSalesRules && pageDiffs.salesRulesDirty) {
+        const nextSalesOnly = Boolean(salesRules.salesOnlyMode);
+        const nextPlatformsEnabled = nextSalesOnly ? false : salesRules.platformsEnabled !== false;
+        const res = await api.saveSalesRules({
+          platformsEnabled: nextPlatformsEnabled,
+          salesOnlyMode: nextSalesOnly,
+          defaultSaleMode:
+            !nextPlatformsEnabled && salesRules.defaultSaleMode === 'platform'
+              ? 'direct'
+              : salesRules.defaultSaleMode,
+          platformSelection: salesRules.platformSelection,
+          defaultPlatformId: salesRules.platformSelection === 'fixed' ? salesRules.defaultPlatformId : '',
+          customerSelection: salesRules.customerSelection,
+          defaultCustomerId: salesRules.customerSelection === 'fixed' ? salesRules.defaultCustomerId : '',
+          allowZeroPriceSale: salesRules.allowZeroPriceSale,
+          allowBelowCostSale: salesRules.allowBelowCostSale,
+          platformAlwaysCredit: Boolean(salesRules.platformAlwaysCredit)
+        });
+        if (!res.success || !res.rules) {
+          throw new Error(res.error || 'تعذر حفظ إعدادات البيع وقواعد السعر');
         }
-        setCommittedInvoice(payload);
-      } else if (activeTab === 'tax') {
+        const savedNorm = normalizeClientSalesRules(res.rules);
+        setSalesRules(savedNorm);
+        setCommittedSalesRules(savedNorm);
+        try {
+          localStorage.setItem('mudaqqeq_sales_rules_cache_v1', JSON.stringify(savedNorm));
+        } catch (_) {}
+        onSalesRulesUpdated?.(savedNorm);
+      }
+
+      const autoFillVal = displaySettings.autoFillCashPaid ?? true;
+      const shouldSaveDisplay =
+        (canManageDisplay &&
+          (pageDiffs.displayAppearanceDirty ||
+            pageDiffs.salesDisplayDirty ||
+            pageDiffs.stockDisplayDirty)) ||
+        (!canManageDisplay && !canManagePrint && pageDiffs.posSalesDisplayDirty);
+
+      if (shouldSaveDisplay) {
+        const dispPayload: DisplaySettings = {
+          ...runningDisplay,
+          ...(canManageDisplay && pageDiffs.displayAppearanceDirty
+            ? {
+                showItemImages: displaySettings.showItemImages,
+                posLayout: displaySettings.posLayout
+              }
+            : {}),
+          ...(pageDiffs.posSalesDisplayDirty
+            ? {
+                autoFillCashPaid: autoFillVal,
+                ...(canManageDisplay
+                  ? {
+                      confirmInvoiceBeforeSave: displaySettings.confirmInvoiceBeforeSave,
+                      posVisibleCategoryIds: normalizeCatIdList(displaySettings.posVisibleCategoryIds)
+                    }
+                  : {})
+              }
+            : {}),
+          ...(canManageDisplay && pageDiffs.barcodeOrderingDirty
+            ? {
+                barcodeScanMode:
+                  displaySettings.barcodeScanMode === 'edit_quantity' ? 'edit_quantity' : 'increment',
+                latestItemFirst: normalizeLatestItemFirst(displaySettings.latestItemFirst)
+              }
+            : {}),
+          ...(canManageDisplay && pageDiffs.posCustomerDisplayDirty
+            ? {
+                posShowCustomerAddress: displaySettings.posShowCustomerAddress ?? true,
+                posShowCustomerPhone: displaySettings.posShowCustomerPhone ?? true,
+                posShowCustomerBalance: displaySettings.posShowCustomerBalance ?? true
+              }
+            : {}),
+          ...(canManageDisplay && pageDiffs.stockDisplayDirty
+            ? {
+                showStockQuantity: displaySettings.showStockQuantity,
+                showStockStatusBadge: displaySettings.showStockStatusBadge,
+                enableInlineEdit: displaySettings.enableInlineEdit
+              }
+            : {})
+        };
+        const dispRes = await api.saveDisplaySettings(dispPayload);
+        if (dispRes && dispRes.success === false) {
+          throw new Error((dispRes as any).error || 'فشل حفظ إعدادات العرض');
+        }
+        runningDisplay = dispPayload;
+        setCommittedDisplay(dispPayload);
+      }
+
+      const autoFillChanged = autoFillVal !== (committedInvoice.autoFillCashPaid ?? true);
+      if (canManagePrint && (pageDiffs.print || (pageDiffs.posSalesDisplayDirty && autoFillChanged))) {
+        const baseInvoice = pageDiffs.print ? invoiceSettings : runningInvoice;
+        const invPayload: InvoicePrintSettings = {
+          ...baseInvoice,
+          autoFillCashPaid: pageDiffs.posSalesDisplayDirty
+            ? autoFillVal
+            : runningInvoice.autoFillCashPaid
+        };
+        const invRes = await api.saveInvoicePrintSettings(invPayload);
+        if (invRes && invRes.success === false) {
+          throw new Error((invRes as any).error || 'فشل حفظ إعدادات الفاتورة والطباعة');
+        }
+        runningInvoice = invPayload;
+        setCommittedInvoice(invPayload);
+        if (!canManageDisplay && pageDiffs.posSalesDisplayDirty) {
+          runningDisplay = { ...runningDisplay, autoFillCashPaid: autoFillVal };
+          setCommittedDisplay(runningDisplay);
+        }
+      }
+
+      if (canManageNegativeStock && pageDiffs.stockPolicyDirty) {
+        const stockRes = await api.saveStockSettings({
+          allowNegativeStockSale: stockSettings.allowNegativeStockSale,
+          allowNegativeWarehouseTransfer: stockSettings.allowNegativeWarehouseTransfer
+        });
+        if (!stockRes.success) {
+          throw new Error((stockRes as any).error || 'فشل حفظ سياسة المخزون');
+        }
+        const nextStock = stockRes.settings || { ...stockSettings };
+        setStockSettings(nextStock);
+        setCommittedStock(nextStock);
+      }
+
+      if (canManageCompany && pageDiffs.tax) {
         const res = await api.saveTaxSettings(taxSettings);
         if (res && res.success === false) {
           throw new Error((res as any).error || 'فشل حفظ إعدادات الضريبة والعمولة');
         }
         setCommittedTax({ ...taxSettings });
-      } else if (activeTab === 'visitor') {
+      }
+
+      if (canManageVisitorDisplay && pageDiffs.visitor) {
         const clampedSlideSec = Math.max(3, Math.min(60, Math.round(Number(visitorSettings.slideSeconds) || 8)));
         const clampedResultSec = Math.max(3, Math.min(60, Math.round(Number(visitorSettings.resultSeconds) || 6)));
         const trimmedWelcome = String(visitorSettings.welcomeText || '').slice(0, 120);
@@ -1833,7 +1897,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         }
         setVisitorSettings(res.settings);
         setCommittedVisitorSettings(res.settings);
-      } else if (activeTab === 'labels') {
+      }
+
+      if (canManageLabelPrint && !salesOnlyCommitted && pageDiffs.labels) {
         const validationErrors = validateLabelSettings(labelSettings);
         if (validationErrors.length > 0) {
           throw new Error(validationErrors[0]);
@@ -2197,15 +2263,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   };
 
   useEffect(() => {
-    if (activeTab === 'integration') {
+    if (activeSection === 'database' || activeSection === 'backup_reset') {
       void loadDatabaseAndBackupInfo();
     }
-  }, [activeTab, canManageIntegration, canManageBackup]);
+  }, [activeSection, canManageIntegration, canManageBackup]);
 
   useEffect(() => {
     const scrollToBackupIfRequested = () => {
       const hasBackupHash = typeof window !== 'undefined' && window.location.hash === '#backup';
-      if (activeTab === 'integration' && canManageBackup && (initialTab === 'backup' || hasBackupHash)) {
+      if (hasBackupHash && (canManageBackup || canManageReset)) {
+        setActiveSection('backup_reset');
+      }
+      if (activeSection === 'backup_reset' && canManageBackup && (initialTab === 'backup' || hasBackupHash)) {
         window.setTimeout(() => {
           backupSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }, 80);
@@ -2214,7 +2283,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     scrollToBackupIfRequested();
     window.addEventListener('hashchange', scrollToBackupIfRequested);
     return () => window.removeEventListener('hashchange', scrollToBackupIfRequested);
-  }, [activeTab, initialTab, canManageBackup]);
+  }, [activeSection, initialTab, canManageBackup, canManageReset]);
 
   const handleCheckDatabase = async () => {
     setIsCheckingDb(true);
@@ -2402,10 +2471,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   }, [canManageUsers]);
 
   useEffect(() => {
-    if (activeTab === 'users' && canManageUsers) {
+    if (activeSection === 'users' && canManageUsers) {
       loadUserSessions();
     }
-  }, [activeTab, canManageUsers, loadUserSessions]);
+  }, [activeSection, canManageUsers, loadUserSessions]);
 
   const handleQuickSaveInactivityTimeout = async (nextMinutes: InactivityTimeoutMinutes) => {
     if (!canManageCompany || isSavingQuickTimeout) return;
@@ -2843,52 +2912,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     );
   };
 
-  // Fallback tab resolution when initialTab omitted
+  // Fallback section resolution when activeSection is unavailable for current user/mode
   useEffect(() => {
-    const shouldResolve = !initialTab || (salesOnlyCommitted && activeTab === 'labels');
-    if (shouldResolve) {
-      const firstAllowed: CanonicalSettingsTab = canManageCompany
-        ? 'company'
-        : canManageUiScale || canManageDisplay
-        ? 'appearance'
-        : canManageSalesRules
-        ? 'sales'
-        : canManageVisitorDisplay
-        ? 'visitor'
-        : canManageNegativeStock
-        ? 'stock'
-        : canManagePrint || canManageInvoiceNumbering
-        ? 'print'
-        : canManageLabelPrint && !salesOnlyCommitted
-        ? 'labels'
-        : canManageBankLink
-        ? 'bank_link'
-        : canManageIntegration || canManageBackup || canManageReset
-        ? 'integration'
-        : canManageUsers
-        ? 'users'
-        : 'sales';
-      setActiveTab(firstAllowed);
+    const isStillVisible = visibleSections.some((s) => s.id === activeSection);
+    if (!initialTab || !isStillVisible) {
+      const firstAllowed = visibleSections[0]?.id || 'company';
+      if (!isStillVisible || (salesOnlyCommitted && activeSection === 'labels')) {
+        setActiveSection(firstAllowed);
+      }
     }
-  }, [
-    initialTab,
-    activeTab,
-    salesOnlyCommitted,
-    canManageCompany,
-    canManageUiScale,
-    canManageDisplay,
-    canManageSalesRules,
-    canManageVisitorDisplay,
-    canManageNegativeStock,
-    canManagePrint,
-    canManageInvoiceNumbering,
-    canManageLabelPrint,
-    canManageBankLink,
-    canManageIntegration,
-    canManageBackup,
-    canManageReset,
-    canManageUsers
-  ]);
+  }, [initialTab, activeSection, visibleSections, salesOnlyCommitted]);
 
   const renderSettingRow = (
     label: React.ReactNode,
@@ -2915,74 +2948,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     </div>
   );
 
-  const settingsHeaderMeta: Record<CanonicalSettingsTab, { title: string; subtitle: string }> = {
-    company: {
-      title: 'بيانات المنشأة',
-      subtitle: 'هوية المنشأة، البيانات الضريبية، وأرقام التواصل في صفحة تسجيل الدخول'
-    },
-    appearance: {
-      title: 'المظهر والحجم',
-      subtitle: 'الثيمات، الخط، المؤثرات الحركية، مقاسات الواجهة على هذا الجهاز، وخيارات العرض المشتركة'
-    },
-    sales: {
-      title: 'البيع ونقطة البيع',
-      subtitle: 'إعدادات البيع وقواعد السعر، الافتراضيات عند فتح شاشة البيع، وخيارات الفاتورة'
-    },
-    visitor: {
-      title: 'شاشة الزوار',
-      subtitle: 'صور العرض المتقلّبة واستعلام الزبون عن سعر المنتج بالباركود'
-    },
-    stock: {
-      title: 'الأصناف والمخزون',
-      subtitle: 'سياسة البيع والتحويل بالسالب وإعدادات عرض الأصناف في دليل وجدول المخزون'
-    },
-    print: {
-      title: 'الفواتير والطباعة',
-      subtitle: 'مقاس ورق الإيصال، البيانات المطبوعة، ومعاينة الفاتورة المباشرة'
-    },
-    labels: {
-      title: 'طابعة الباركود',
-      subtitle: 'مقاس تكت الباركود، الورق والهوامش، ترتيب العناصر، ومعاينة التكت بالمقاس الحقيقي'
-    },
-    tax: {
-      title: 'الضريبة والعمولة',
-      subtitle: 'سياسة شمول الضريبة وطريقة احتساب عمولة المنصات'
-    },
-    bank_link: {
-      title: 'الخزن المربوطة بالبنك',
-      subtitle: 'ربط خزن النظام بحسابات البنك والمحافظ وإنستا باي عبر رسائل الهاتف ومطابقة الأرصدة تلقائيًا'
-    },
-    integration: {
-      title:
-        canManageIntegration && canManageBackup
-          ? 'قاعدة البيانات والنسخ الاحتياطي'
-          : canManageBackup && !canManageIntegration && canManageReset
-          ? 'النسخ الاحتياطي وإعادة الضبط'
-          : canManageBackup && !canManageIntegration
-          ? 'النسخ الاحتياطي'
-          : !canManageIntegration && !canManageBackup && canManageReset
-          ? 'إعادة الضبط'
-          : 'قاعدة البيانات',
-      subtitle:
-        canManageIntegration && canManageBackup
-          ? 'حالة الاتصال بقاعدة البيانات وفحص التهيئة وتنزيل واسترجاع النسخ الاحتياطية'
-          : canManageBackup && !canManageIntegration
-          ? 'تنزيل نسخة احتياطية كاملة من بيانات الشركة واسترجاعها بأمان'
-          : !canManageIntegration && !canManageBackup && canManageReset
-          ? 'إعادة ضبط العمليات أو إعادة ضبط المصنع مع التحقق والتأكيد الكامل'
-          : 'حالة الاتصال بقاعدة البيانات وفحص التهيئة وكود الإعداد'
-    },
-    shortcuts: {
-      title: 'اختصارات لوحة المفاتيح',
-      subtitle: 'إدارة اختصارات لوحة المفاتيح العامة للبرنامج كله وتخصيص المفاتيح وحالتها'
-    },
-    users: {
-      title: `إدارة المستخدمين (${users.length})`,
-      subtitle: 'إدارة حسابات المستخدمين والأدوار وتعيينات الخزائن'
-    }
-  };
-
-  const currentSettingsMeta = settingsHeaderMeta[activeTab] || settingsHeaderMeta.company;
+  const activeSectionTitleOverride =
+    activeSection === 'users'
+      ? `المستخدمون والجلسات النشطة (${users.length})`
+      : activeSection === 'backup_reset' && !canManageBackup && canManageReset && !canManageIntegration
+      ? 'إعادة الضبط'
+      : activeSection === 'backup_reset' && canManageBackup && !canManageReset
+      ? 'النسخ الاحتياطي'
+      : undefined;
 
   const renderUiScaleSection = (withTopDivider = false) => {
     if (!canManageUiScale) return null;
@@ -3134,9 +3107,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     );
   };
 
-  const renderOfflineBackupSection = () => (
+  const renderOfflineBackupSection = (withTopDivider = true) => (
     <div className="space-y-2">
-      <SectionHeading title="النسخ الاحتياطي المحلي على الجهاز" withTopDivider />
+      <SectionHeading title="النسخ الاحتياطي المحلي على الجهاز" withTopDivider={withTopDivider} />
       {renderSettingRow(
         'النسخ الاحتياطي التلقائي للعمليات أوفلاين وحماية البيانات المحلية',
         <>
@@ -3225,11 +3198,26 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   return (
     <PageSurface
       dir="rtl"
-      title={currentSettingsMeta.title}
-      subtitle={currentSettingsMeta.subtitle}
+      title="إعدادات البرنامج"
+      subtitle="إعدادات النظام ونقطة البيع والمخزون والطباعة والأمان مقسّمة في أقسام واضحة لسهولة الوصول"
     >
-      {/* 1) صفحة: بيانات المنشأة */}
-      {activeTab === 'company' && canManageCompany && (
+      <div className="flex flex-col lg:grid lg:grid-cols-[248px_minmax(0,1fr)] gap-6 lg:gap-7 items-start">
+        <SettingsSectionNav
+          visibleSections={visibleSections}
+          activeSection={activeSection}
+          onSelectSection={setActiveSection}
+          sectionDirtyMap={sectionDirtyMap}
+          usersCount={users.length}
+        />
+
+        <div className="w-full min-w-0 space-y-6">
+          <SettingsSectionHeader
+            section={activeSectionMeta}
+            titleOverride={activeSectionTitleOverride}
+          />
+
+          {/* 1) قسم: بيانات المنشأة والتواصل */}
+          {activeSection === 'company' && canManageCompany && (
         <div className="space-y-6">
           <SectionHeading title="هوية المنشأة" />
           <div>
@@ -3449,8 +3437,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       )}
 
-      {/* 2) صفحة: المظهر والحجم */}
-      {activeTab === 'appearance' && (
+      {/* 2) قسم: المظهر والحجم */}
+      {activeSection === 'appearance' && (
         <div className="space-y-6">
           {canManageCompany && (
             <>
@@ -3650,130 +3638,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       )}
 
-      {/* 3) صفحة: البيع ونقطة البيع */}
-      {activeTab === 'sales' && (
+      {/* 3) قسم: نقطة البيع وقواعد السعر */}
+      {activeSection === 'pos_sales' && (
         <div className="space-y-6">
           {canManageSalesRules && (
             <div id="settings-sales-rules-section" className="space-y-6">
-              {(() => {
-                const isDraftSalesOnly = Boolean(salesRules.salesOnlyMode);
-                const isDraftPlatformsOn = !isDraftSalesOnly && salesRules.platformsEnabled !== false;
-                return (
-                  <div id="settings-feature-modes-section" className="space-y-3">
-                    <SectionHeading title="أوضاع التشغيل والمنصات" />
-                    <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                      تحكّم مركزي على مستوى المنشأة في تفعيل مبيعات ووظائف المنصات أو تشغيل البرنامج بوضع البيع المباشر فقط. لا تُحذف أي بيانات أو فواتير سابقة عند الإيقاف.
-                    </p>
-                    <div>
-                      {renderSettingRow(
-                        'تفعيل مبيعات ووظائف المنصات',
-                        isDraftSalesOnly
-                          ? 'مُغلق تلقائيًا أثناء تفعيل «وضع البيع فقط». أوقف «وضع البيع فقط» أولًا إذا أردت إعادة تفعيل المنصات.'
-                          : 'عند الإيقاف: يقتصر البرنامج على البيع المباشر وتختفي شاشة المنصات، واختيار البيع على منصة في نقطة البيع، وتقارير المنصات والـ BNPL مع الحفاظ على الفواتير والبيانات التاريخية.',
-                        <div className="flex items-center gap-3">
-                          <span
-                            className={`text-xs font-bold ${
-                              isDraftPlatformsOn ? 'ui-money-purchase' : 'text-[var(--text-secondary)]'
-                            }`}
-                          >
-                            {isDraftPlatformsOn ? 'مفعّل' : 'متوقف'}
-                          </span>
-                          <button
-                            type="button"
-                            disabled={isDraftSalesOnly}
-                            onClick={() => {
-                              if (isDraftSalesOnly) return;
-                              setSalesRules((prev) => {
-                                const nextEnabled = !(prev.platformsEnabled !== false);
-                                return {
-                                  ...prev,
-                                  platformsEnabled: nextEnabled,
-                                  defaultSaleMode:
-                                    !nextEnabled && prev.defaultSaleMode === 'platform'
-                                      ? 'direct'
-                                      : prev.defaultSaleMode
-                                };
-                              });
-                            }}
-                            role="switch"
-                            aria-checked={isDraftPlatformsOn}
-                            aria-disabled={isDraftSalesOnly}
-                            aria-label="تفعيل مبيعات ووظائف المنصات"
-                            data-feature-mode-switch="platformsEnabled"
-                            className={`min-h-[44px] inline-flex items-center px-1 ${
-                              isDraftSalesOnly ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                            }`}
-                          >
-                            <span
-                              className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                                isDraftPlatformsOn ? 'bg-cyan-600' : 'bg-slate-300'
-                              }`}
-                            >
-                              <span
-                                aria-hidden="true"
-                                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                                  isDraftPlatformsOn ? 'translate-x-0' : '-translate-x-5'
-                                }`}
-                              />
-                            </span>
-                          </button>
-                        </div>
-                      )}
-
-                      {renderSettingRow(
-                        'وضع البيع فقط',
-                        'يقصر واجهة ومسارات البرنامج على نقطة البيع والخدمات المرتبطة بها (الفواتير، العملاء، تحصيل العملاء، طلبات التوصيل، شاشة الزوار، المزامنة، وإعدادات النظام الأساسية)، ويُوقف وظائف المنصات تلقائيًا. عند إيقافه لاحقًا تظل المنصات متوقفة حتى تُفعّلها يدويًا.',
-                        <div className="flex items-center gap-3">
-                          <span
-                            className={`text-xs font-bold ${
-                              isDraftSalesOnly ? 'ui-money-purchase' : 'text-[var(--text-secondary)]'
-                            }`}
-                          >
-                            {isDraftSalesOnly ? 'مفعّل' : 'متوقف'}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSalesRules((prev) => {
-                                const nextSalesOnly = !Boolean(prev.salesOnlyMode);
-                                return {
-                                  ...prev,
-                                  salesOnlyMode: nextSalesOnly,
-                                  platformsEnabled: nextSalesOnly ? false : false,
-                                  defaultSaleMode:
-                                    nextSalesOnly && prev.defaultSaleMode === 'platform'
-                                      ? 'direct'
-                                      : prev.defaultSaleMode
-                                };
-                              });
-                            }}
-                            role="switch"
-                            aria-checked={isDraftSalesOnly}
-                            aria-label="وضع البيع فقط"
-                            data-feature-mode-switch="salesOnlyMode"
-                            className="min-h-[44px] inline-flex items-center px-1 cursor-pointer"
-                          >
-                            <span
-                              className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                                isDraftSalesOnly ? 'bg-cyan-600' : 'bg-slate-300'
-                              }`}
-                            >
-                              <span
-                                aria-hidden="true"
-                                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                                  isDraftSalesOnly ? 'translate-x-0' : '-translate-x-5'
-                                }`}
-                              />
-                            </span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <SectionHeading title="الافتراضيات عند فتح شاشة البيع" withTopDivider />
+              <SectionHeading title="الافتراضيات عند فتح شاشة البيع" />
 
               {salesRules.defaultPlatformMissing && salesRules.platformsEnabled !== false && !salesRules.salesOnlyMode && (
                 <div
@@ -4061,7 +3931,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </div>
           )}
 
-          {(canManageDisplay || canManagePrint || canManageCompany) && (
+          {(canManageDisplay || canManagePrint) && (
             <div className="space-y-4">
               <SectionHeading
                 title="خيارات الفاتورة في نقطة البيع"
@@ -4105,238 +3975,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       />
                     </label>
                   )}
-
-                {canManageCompany &&
-                  renderSettingRow(
-                    'رسوم التوصيل على الفاتورة (اختياري)',
-                    'تفعيل إظهار حقل يدوي لإضافة رسوم التوصيل في ملخص فاتورة نقطة البيع دون التأثير على عمولة المنصة أو الضريبة.',
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`text-xs font-bold ${
-                          companySettings.enableDeliveryFee
-                            ? 'ui-money-purchase'
-                            : 'text-[var(--text-secondary)]'
-                        }`}
-                      >
-                        {companySettings.enableDeliveryFee ? 'مفعّل' : 'مغلق'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setCompanySettings({
-                            ...companySettings,
-                            enableDeliveryFee: !companySettings.enableDeliveryFee
-                          })
-                        }
-                        role="switch"
-                        aria-checked={Boolean(companySettings.enableDeliveryFee)}
-                        aria-label="رسوم التوصيل على الفاتورة (اختياري)"
-                        className="min-h-[44px] inline-flex items-center px-1 cursor-pointer"
-                      >
-                        <span
-                          className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                            companySettings.enableDeliveryFee ? 'bg-cyan-600' : 'bg-slate-300'
-                          }`}
-                        >
-                          <span
-                            aria-hidden="true"
-                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                              companySettings.enableDeliveryFee ? 'translate-x-0' : '-translate-x-5'
-                            }`}
-                          />
-                        </span>
-                      </button>
-                    </div>
-                  )}
-              </div>
-            </div>
-          )}
-
-          {canManageDisplay && (
-            <div className="space-y-4">
-              <SectionHeading
-                title="بيانات العميل في شاشة نقطة البيع"
-                withTopDivider={canManageSalesRules || canManageDisplay || canManagePrint || canManageCompany}
-              />
-              <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                تحكّم مستقل في إظهار بيانات العميل المختار داخل شاشة نقطة البيع وقائمة اختيار العميل. تُحفظ هذه الخيارات في إعدادات المنشأة المشتركة، ولا تؤثر على طباعة الإيصال أو سجل الفواتير. يظل عرض رصيد العميل خاضعًا أيضًا لصلاحية عرض العملاء وكشف الحساب.
-              </p>
-              <div>
-                {[
-                  {
-                    key: 'posShowCustomerAddress' as const,
-                    attr: 'address',
-                    title: 'إظهار عنوان العميل',
-                    description: 'يعرض سطر العنوان داخل بطاقة العميل في نقطة البيع عندما يكون للعميل عنوان مسجّل.'
-                  },
-                  {
-                    key: 'posShowCustomerPhone' as const,
-                    attr: 'phone',
-                    title: 'إظهار رقم هاتف العميل',
-                    description: 'يعرض رقم الهاتف في قائمة اختيار العميل وبطاقة العميل بنقطة البيع عندما يكون مسجّلًا.'
-                  },
-                  {
-                    key: 'posShowCustomerBalance' as const,
-                    attr: 'balance',
-                    title: 'إظهار رصيد العميل',
-                    description: 'يعرض رصيد العميل في قائمة الاختيار وبطاقة العميل بنقطة البيع للمستخدمين المخولين بصلاحية عرض العملاء (customers.view) فقط.'
-                  }
-                ].map((item) => {
-                  const isEnabled = displaySettings[item.key] ?? true;
-                  return renderSettingRow(
-                    item.title,
-                    item.description,
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`text-xs font-bold ${
-                          isEnabled ? 'ui-money-purchase' : 'text-[var(--text-secondary)]'
-                        }`}
-                      >
-                        {isEnabled ? 'مفعّل' : 'متوقف'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDisplaySettings({
-                            ...displaySettings,
-                            [item.key]: !isEnabled
-                          })
-                        }
-                        role="switch"
-                        aria-checked={isEnabled}
-                        aria-label={item.title}
-                        data-pos-customer-display-switch={item.attr}
-                        className="min-h-[44px] inline-flex items-center px-1 cursor-pointer"
-                      >
-                        <span
-                          className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                            isEnabled ? 'bg-cyan-600' : 'bg-slate-300'
-                          }`}
-                        >
-                          <span
-                            aria-hidden="true"
-                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                              isEnabled ? 'translate-x-0' : '-translate-x-5'
-                            }`}
-                          />
-                        </span>
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {canManageDisplay && (
-            <div className="space-y-4">
-              <SectionHeading
-                title="إعدادات الباركود"
-                withTopDivider={canManageSalesRules || canManageDisplay || canManagePrint || canManageCompany}
-              />
-              <div>
-                {renderSettingRow(
-                  'طريقة إضافة الكمية عند مسح الباركود',
-                  'يُطبق هذا الإعداد تلقائيًا على جميع شاشات المعاملات (نقطة البيع، فاتورة المشتريات، مرتجع المبيعات، مرتجع المشتريات، والتحويل بين المخازن) لقارئ الباركود USB/Bluetooth والكاميرا.',
-                  <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="طريقة إضافة الكمية عند مسح الباركود">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDisplaySettings({
-                          ...displaySettings,
-                          barcodeScanMode: 'edit_quantity'
-                        })
-                      }
-                      aria-pressed={displaySettings.barcodeScanMode === 'edit_quantity'}
-                      className={`min-h-[40px] px-3.5 py-2 rounded-lg text-xs font-bold border transition cursor-pointer ${
-                        displaySettings.barcodeScanMode === 'edit_quantity'
-                          ? 'bg-[#1668B2] border-[#1668B2] text-white'
-                          : 'border-[var(--border-color)] text-[var(--text-primary)] hover:bg-[var(--surface-subtle)]'
-                      }`}
-                    >
-                      مسح الصنف ثم تعديل الكمية
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDisplaySettings({
-                          ...displaySettings,
-                          barcodeScanMode: 'increment'
-                        })
-                      }
-                      aria-pressed={(displaySettings.barcodeScanMode || 'increment') === 'increment'}
-                      className={`min-h-[40px] px-3.5 py-2 rounded-lg text-xs font-bold border transition cursor-pointer ${
-                        (displaySettings.barcodeScanMode || 'increment') === 'increment'
-                          ? 'bg-[#1668B2] border-[#1668B2] text-white'
-                          : 'border-[var(--border-color)] text-[var(--text-primary)] hover:bg-[var(--surface-subtle)]'
-                      }`}
-                    >
-                      كل مسحة تضيف قطعة
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {canManageDisplay && (
-            <div className="space-y-4">
-              <SectionHeading
-                title="ترتيب آخر صنف أولًا"
-                withTopDivider={canManageSalesRules || canManageDisplay || canManagePrint || canManageCompany}
-              />
-              <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                تحكّم مستقل لكل شاشة معاملات في وضع أحدث صنف مُضاف أو ممسوح بأعلى جدول التفاصيل. هذا الإعداد يخص ترتيب الصفوف فقط ومنفصل عن «طريقة إضافة الكمية عند مسح الباركود»، ولا يغيّر ترتيب دليل الأصناف أو التقارير أو الفواتير المحفوظة تاريخيًا.
-              </p>
-              <div>
-                {LATEST_ITEM_FIRST_SCREENS.map((screen) => {
-                  const currentMap = normalizeLatestItemFirst(displaySettings.latestItemFirst);
-                  const isEnabled = currentMap[screen.key];
-                  return renderSettingRow(
-                    screen.label,
-                    screen.description,
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`text-xs font-bold ${
-                          isEnabled ? 'ui-money-purchase' : 'text-[var(--text-secondary)]'
-                        }`}
-                      >
-                        {isEnabled ? 'مفعّل' : 'متوقف'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const prevMap = normalizeLatestItemFirst(displaySettings.latestItemFirst);
-                          setDisplaySettings({
-                            ...displaySettings,
-                            latestItemFirst: {
-                              ...prevMap,
-                              [screen.key]: !prevMap[screen.key]
-                            }
-                          });
-                        }}
-                        role="switch"
-                        aria-checked={isEnabled}
-                        aria-label={`ترتيب آخر صنف أولًا - ${screen.label}`}
-                        data-latest-item-first-switch={screen.key}
-                        className="min-h-[44px] inline-flex items-center px-1 cursor-pointer"
-                      >
-                        <span
-                          className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                            isEnabled ? 'bg-cyan-600' : 'bg-slate-300'
-                          }`}
-                        >
-                          <span
-                            aria-hidden="true"
-                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                              isEnabled ? 'translate-x-0' : '-translate-x-5'
-                            }`}
-                          />
-                        </span>
-                      </button>
-                    </div>
-                  );
-                })}
               </div>
             </div>
           )}
@@ -4345,7 +3983,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <div className="space-y-4">
               <SectionHeading
                 title="تصنيفات شاشة نقطة البيع"
-                withTopDivider={canManageSalesRules || canManageDisplay || canManagePrint || canManageCompany}
+                withTopDivider={canManageSalesRules || canManageDisplay || canManagePrint}
               />
               <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
                 حدد التصنيفات الرئيسية والتصنيفات الفرعية التابعة لها التي تظهر كأزرار في شاشة نقطة البيع فقط. لا يظهر زر «الكل» في صف التصنيفات الرئيسية أو الفرعية، ولا تُعرض جميع الفروع تلقائياً كبديل عند عدم اختيارها. (لا يؤثر ذلك على البحث أو مسح الباركود.)
@@ -4365,8 +4003,370 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       )}
 
-      {/* 3b) صفحة: شاشة الزوار */}
-      {activeTab === 'visitor' && canManageVisitorDisplay && (
+      {/* 3b) قسم: الباركود وترتيب الأصناف */}
+      {activeSection === 'barcode_ordering' && canManageDisplay && (
+        <div className="space-y-6">
+          <div className="space-y-4">
+            <SectionHeading title="طريقة مسح الباركود" />
+            <div>
+              {renderSettingRow(
+                'طريقة إضافة الكمية عند مسح الباركود',
+                'يُطبق هذا الإعداد تلقائيًا على جميع شاشات المعاملات (نقطة البيع، فاتورة المشتريات، مرتجع المبيعات، مرتجع المشتريات، والتحويل بين المخازن) لقارئ الباركود USB/Bluetooth والكاميرا.',
+                <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="طريقة إضافة الكمية عند مسح الباركود">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDisplaySettings({
+                        ...displaySettings,
+                        barcodeScanMode: 'edit_quantity'
+                      })
+                    }
+                    aria-pressed={displaySettings.barcodeScanMode === 'edit_quantity'}
+                    className={`min-h-[40px] px-3.5 py-2 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                      displaySettings.barcodeScanMode === 'edit_quantity'
+                        ? 'bg-[#1668B2] border-[#1668B2] text-white'
+                        : 'border-[var(--border-color)] text-[var(--text-primary)] hover:bg-[var(--surface-subtle)]'
+                    }`}
+                  >
+                    مسح الصنف ثم تعديل الكمية
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDisplaySettings({
+                        ...displaySettings,
+                        barcodeScanMode: 'increment'
+                      })
+                    }
+                    aria-pressed={(displaySettings.barcodeScanMode || 'increment') === 'increment'}
+                    className={`min-h-[40px] px-3.5 py-2 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                      (displaySettings.barcodeScanMode || 'increment') === 'increment'
+                        ? 'bg-[#1668B2] border-[#1668B2] text-white'
+                        : 'border-[var(--border-color)] text-[var(--text-primary)] hover:bg-[var(--surface-subtle)]'
+                    }`}
+                  >
+                    كل مسحة تضيف قطعة
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <SectionHeading title="ترتيب أحدث صنف أولًا لكل شاشة" withTopDivider />
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+              تحكّم مستقل لكل شاشة معاملات في وضع أحدث صنف مُضاف أو ممسوح بأعلى جدول التفاصيل. هذا الإعداد يخص ترتيب الصفوف فقط ومنفصل عن «طريقة إضافة الكمية عند مسح الباركود»، ولا يغيّر ترتيب دليل الأصناف أو التقارير أو الفواتير المحفوظة تاريخيًا.
+            </p>
+            <div>
+              {LATEST_ITEM_FIRST_SCREENS.map((screen) => {
+                const currentMap = normalizeLatestItemFirst(displaySettings.latestItemFirst);
+                const isEnabled = currentMap[screen.key];
+                return renderSettingRow(
+                  screen.label,
+                  screen.description,
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`text-xs font-bold ${
+                        isEnabled ? 'ui-money-purchase' : 'text-[var(--text-secondary)]'
+                      }`}
+                    >
+                      {isEnabled ? 'مفعّل' : 'متوقف'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const prevMap = normalizeLatestItemFirst(displaySettings.latestItemFirst);
+                        setDisplaySettings({
+                          ...displaySettings,
+                          latestItemFirst: {
+                            ...prevMap,
+                            [screen.key]: !prevMap[screen.key]
+                          }
+                        });
+                      }}
+                      role="switch"
+                      aria-checked={isEnabled}
+                      aria-label={`ترتيب آخر صنف أولًا - ${screen.label}`}
+                      data-latest-item-first-switch={screen.key}
+                      className="min-h-[44px] inline-flex items-center px-1 cursor-pointer"
+                    >
+                      <span
+                        className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                          isEnabled ? 'bg-cyan-600' : 'bg-slate-300'
+                        }`}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                            isEnabled ? 'translate-x-0' : '-translate-x-5'
+                          }`}
+                        />
+                      </span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3c) قسم: بيانات العميل في نقطة البيع */}
+      {activeSection === 'pos_customer_display' && canManageDisplay && (
+        <div className="space-y-4">
+          <SectionHeading title="بيانات العميل في شاشة نقطة البيع" />
+          <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+            تحكّم مستقل في إظهار بيانات العميل المختار داخل شاشة نقطة البيع وقائمة اختيار العميل. تُحفظ هذه الخيارات في إعدادات المنشأة المشتركة، ولا تؤثر على طباعة الإيصال أو سجل الفواتير. يظل عرض رصيد العميل خاضعًا أيضًا لصلاحية عرض العملاء وكشف الحساب.
+          </p>
+          <div>
+            {[
+              {
+                key: 'posShowCustomerAddress' as const,
+                attr: 'address',
+                title: 'إظهار عنوان العميل',
+                description: 'يعرض سطر العنوان داخل بطاقة العميل في نقطة البيع عندما يكون للعميل عنوان مسجّل.'
+              },
+              {
+                key: 'posShowCustomerPhone' as const,
+                attr: 'phone',
+                title: 'إظهار رقم هاتف العميل',
+                description: 'يعرض رقم الهاتف في قائمة اختيار العميل وبطاقة العميل بنقطة البيع عندما يكون مسجّلًا.'
+              },
+              {
+                key: 'posShowCustomerBalance' as const,
+                attr: 'balance',
+                title: 'إظهار رصيد العميل',
+                description: 'يعرض رصيد العميل في قائمة الاختيار وبطاقة العميل بنقطة البيع للمستخدمين المخولين بصلاحية عرض العملاء (customers.view) فقط.'
+              }
+            ].map((item) => {
+              const isEnabled = displaySettings[item.key] ?? true;
+              return renderSettingRow(
+                item.title,
+                item.description,
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`text-xs font-bold ${
+                      isEnabled ? 'ui-money-purchase' : 'text-[var(--text-secondary)]'
+                    }`}
+                  >
+                    {isEnabled ? 'مفعّل' : 'متوقف'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDisplaySettings({
+                        ...displaySettings,
+                        [item.key]: !isEnabled
+                      })
+                    }
+                    role="switch"
+                    aria-checked={isEnabled}
+                    aria-label={item.title}
+                    data-pos-customer-display-switch={item.attr}
+                    className="min-h-[44px] inline-flex items-center px-1 cursor-pointer"
+                  >
+                    <span
+                      className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                        isEnabled ? 'bg-cyan-600' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                          isEnabled ? 'translate-x-0' : '-translate-x-5'
+                        }`}
+                      />
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 3d) قسم: المنصات ووضع البيع فقط */}
+      {activeSection === 'platforms_modes' && canManageSalesRules && (() => {
+        const isDraftSalesOnly = Boolean(salesRules.salesOnlyMode);
+        const isDraftPlatformsOn = !isDraftSalesOnly && salesRules.platformsEnabled !== false;
+        return (
+          <div id="settings-feature-modes-section" className="space-y-4">
+            <SectionHeading title="أوضاع التشغيل والمنصات" />
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+              تحكّم مركزي على مستوى المنشأة في تفعيل مبيعات ووظائف المنصات أو تشغيل البرنامج بوضع البيع المباشر فقط. لا تُحذف أي بيانات أو فواتير سابقة عند الإيقاف.
+            </p>
+            <div>
+              {renderSettingRow(
+                'تفعيل مبيعات ووظائف المنصات',
+                isDraftSalesOnly
+                  ? 'مُغلق تلقائيًا أثناء تفعيل «وضع البيع فقط». أوقف «وضع البيع فقط» أولًا إذا أردت إعادة تفعيل المنصات.'
+                  : 'عند الإيقاف: يقتصر البرنامج على البيع المباشر وتختفي شاشة المنصات، واختيار البيع على منصة في نقطة البيع، وتقارير المنصات والـ BNPL مع الحفاظ على الفواتير والبيانات التاريخية.',
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`text-xs font-bold ${
+                      isDraftPlatformsOn ? 'ui-money-purchase' : 'text-[var(--text-secondary)]'
+                    }`}
+                  >
+                    {isDraftPlatformsOn ? 'مفعّل' : 'متوقف'}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={isDraftSalesOnly}
+                    onClick={() => {
+                      if (isDraftSalesOnly) return;
+                      setSalesRules((prev) => {
+                        const nextEnabled = !(prev.platformsEnabled !== false);
+                        return {
+                          ...prev,
+                          platformsEnabled: nextEnabled,
+                          defaultSaleMode:
+                            !nextEnabled && prev.defaultSaleMode === 'platform'
+                              ? 'direct'
+                              : prev.defaultSaleMode
+                        };
+                      });
+                    }}
+                    role="switch"
+                    aria-checked={isDraftPlatformsOn}
+                    aria-disabled={isDraftSalesOnly}
+                    aria-label="تفعيل مبيعات ووظائف المنصات"
+                    data-feature-mode-switch="platformsEnabled"
+                    className={`min-h-[44px] inline-flex items-center px-1 ${
+                      isDraftSalesOnly ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                    }`}
+                  >
+                    <span
+                      className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                        isDraftPlatformsOn ? 'bg-cyan-600' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                          isDraftPlatformsOn ? 'translate-x-0' : '-translate-x-5'
+                        }`}
+                      />
+                    </span>
+                  </button>
+                </div>
+              )}
+
+              {renderSettingRow(
+                'وضع البيع فقط',
+                'يقصر واجهة ومسارات البرنامج على نقطة البيع والخدمات المرتبطة بها (الفواتير، العملاء، تحصيل العملاء، طلبات التوصيل، شاشة الزوار، المزامنة، وإعدادات النظام الأساسية)، ويُوقف وظائف المنصات تلقائيًا. عند إيقافه لاحقًا تظل المنصات متوقفة حتى تُفعّلها يدويًا.',
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`text-xs font-bold ${
+                      isDraftSalesOnly ? 'ui-money-purchase' : 'text-[var(--text-secondary)]'
+                    }`}
+                  >
+                    {isDraftSalesOnly ? 'مفعّل' : 'متوقف'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSalesRules((prev) => {
+                        const nextSalesOnly = !Boolean(prev.salesOnlyMode);
+                        return {
+                          ...prev,
+                          salesOnlyMode: nextSalesOnly,
+                          platformsEnabled: nextSalesOnly ? false : false,
+                          defaultSaleMode:
+                            nextSalesOnly && prev.defaultSaleMode === 'platform'
+                              ? 'direct'
+                              : prev.defaultSaleMode
+                        };
+                      });
+                    }}
+                    role="switch"
+                    aria-checked={isDraftSalesOnly}
+                    aria-label="وضع البيع فقط"
+                    data-feature-mode-switch="salesOnlyMode"
+                    className="min-h-[44px] inline-flex items-center px-1 cursor-pointer"
+                  >
+                    <span
+                      className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                        isDraftSalesOnly ? 'bg-cyan-600' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                          isDraftSalesOnly ? 'translate-x-0' : '-translate-x-5'
+                        }`}
+                      />
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
+            {(salesRules.updatedBy || salesRules.updatedAt) && (
+              <div className="text-[11px] text-[var(--text-secondary)]">
+                آخر تعديل: {salesRules.updatedBy || '—'} —{' '}
+                {salesRules.updatedAt
+                  ? new Date(salesRules.updatedAt).toLocaleString('ar-EG')
+                  : '—'}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* 3e) قسم: إعدادات التوصيل */}
+      {activeSection === 'delivery' && canManageCompany && (
+        <div className="space-y-4">
+          <SectionHeading title="رسوم التوصيل في نقطة البيع" />
+          <div>
+            {renderSettingRow(
+              'رسوم التوصيل على الفاتورة (اختياري)',
+              'تفعيل إظهار حقل يدوي لإضافة رسوم التوصيل في ملخص فاتورة نقطة البيع دون التأثير على عمولة المنصة أو الضريبة.',
+              <div className="flex items-center gap-3">
+                <span
+                  className={`text-xs font-bold ${
+                    companySettings.enableDeliveryFee
+                      ? 'ui-money-purchase'
+                      : 'text-[var(--text-secondary)]'
+                  }`}
+                >
+                  {companySettings.enableDeliveryFee ? 'مفعّل' : 'مغلق'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCompanySettings({
+                      ...companySettings,
+                      enableDeliveryFee: !companySettings.enableDeliveryFee
+                    })
+                  }
+                  role="switch"
+                  aria-checked={Boolean(companySettings.enableDeliveryFee)}
+                  aria-label="رسوم التوصيل على الفاتورة (اختياري)"
+                  className="min-h-[44px] inline-flex items-center px-1 cursor-pointer"
+                >
+                  <span
+                    className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                      companySettings.enableDeliveryFee ? 'bg-cyan-600' : 'bg-slate-300'
+                    }`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                        companySettings.enableDeliveryFee ? 'translate-x-0' : '-translate-x-5'
+                      }`}
+                    />
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-[var(--text-secondary)] leading-relaxed pt-1">
+            ملاحظة: إعدادات التوصيل التشغيلية (مناطق التوصيل، الطيارون، شركات الشحن، وحد العهدة) تُدار من صفحة «إعدادات التوصيل» في قسم التوصيل بالقائمة الرئيسية.
+          </p>
+        </div>
+      )}
+
+      {/* 3f) قسم: شاشة الزوار */}
+      {activeSection === 'visitor' && canManageVisitorDisplay && (
         <div data-testid="settings-visitor-page" className="space-y-6">
           {/* قسم صور العرض (حفظ فوري) */}
           <div className="space-y-4">
@@ -4640,8 +4640,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       )}
 
-      {/* 4) صفحة: الأصناف والمخزون */}
-      {activeTab === 'stock' && (
+      {/* 4) قسم: الأصناف والمخزون */}
+      {activeSection === 'stock' && (
         <div className="space-y-6">
           {canManageNegativeStock && (
             <div className="space-y-4">
@@ -4787,11 +4787,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       )}
 
-      {/* 5) صفحة: الفواتير والطباعة */}
-      {activeTab === 'print' && (canManagePrint || canManageInvoiceNumbering) && (
+      {/* 5) قسم: طباعة الفواتير والإيصالات */}
+      {activeSection === 'print' && canManagePrint && (
         <div className="space-y-8">
-          {canManagePrint && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
               {/* عمود الخيارات */}
               <div className="lg:col-span-7 space-y-6">
                 <SectionHeading title="مقاس الورق والمعاينة" />
@@ -5223,10 +5222,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
             </div>
           </div>
-            </div>
-          )}
+          </div>
+        </div>
+      )}
 
-          {canManageInvoiceNumbering && (() => {
+      {/* 5أ) قسم: ترقيم الفواتير */}
+      {activeSection === 'invoice_numbering' && canManageInvoiceNumbering && (() => {
             const liveExample = formatLiveInvoiceNumberExample(invoiceNumbering);
             const liveMayRepeat =
               INVOICE_DATE_RANK[invoiceNumbering.datePart] <
@@ -5238,7 +5239,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
             return (
               <div id="settings-invoice-numbering-section" className="space-y-4">
-                <SectionHeading title="ترقيم الفواتير" withTopDivider={canManagePrint} />
+                <SectionHeading title="صيغة وإعدادات ترقيم الفواتير" />
 
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-2 py-2.5 border-b border-[var(--border-subtle)] text-xs">
                   <div className="flex items-center gap-2">
@@ -5607,11 +5608,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
             );
           })()}
-        </div>
-      )}
 
-      {/* 5-ب) صفحة: طابعة الباركود */}
-      {activeTab === 'labels' && canManageLabelPrint && !salesOnlyCommitted && (() => {
+      {/* 5-ب) قسم: طابعة الباركود */}
+      {activeSection === 'labels' && canManageLabelPrint && !salesOnlyCommitted && (() => {
         const sampleItemFromList = items.find(
           (it) => itemBarcodeList(it as unknown as LabelItem).length > 0
         );
@@ -6414,8 +6413,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         );
       })()}
 
-      {/* 6) صفحة: الضريبة والعمولة */}
-      {activeTab === 'tax' && (
+      {/* 6) قسم: الضريبة والعمولة */}
+      {activeSection === 'tax' && canManageCompany && (
         <div className="space-y-5">
           <SectionHeading title="إعدادات الضريبة واحتساب عمولة المنصات" />
 
@@ -6490,8 +6489,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       )}
 
-      {/* 7) صفحة: الخزن المربوطة بالبنك */}
-      {activeTab === 'bank_link' && canManageBankLink && (
+      {/* 7) قسم: الخزن المربوطة بالبنك */}
+      {activeSection === 'bank_link' && canManageBankLink && (
         <BankLinkSection
           cashboxes={cashboxes}
           users={users}
@@ -6509,8 +6508,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         />
       )}
 
-      {/* 8) صفحة: قاعدة البيانات والنسخ الاحتياطي وإعادة الضبط */}
-      {activeTab === 'integration' && canManageIntegration && (
+      {/* 8) قسم: قاعدة البيانات والصور */}
+      {activeSection === 'database' && canManageIntegration && (
         <div className="space-y-6">
           <SectionHeading
             title="قاعدة البيانات"
@@ -6761,20 +6760,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       )}
 
-      {activeTab === 'integration' && canManageBackup && (
+      {/* 8-ب) قسم: النسخ الاحتياطي وإعادة الضبط */}
+      {activeSection === 'backup_reset' && canManageBackup && (
         <div
           id="settings-backup-section"
           ref={backupSectionRef}
-          className={
-            activeTab === 'integration' && canManageIntegration
-              ? 'space-y-6 pt-6 mt-6 scroll-mt-4'
-              : 'space-y-6 scroll-mt-4'
-          }
+          className="space-y-6 scroll-mt-4"
         >
-          <SectionHeading
-            title="النسخ الاحتياطي"
-            withTopDivider={activeTab === 'integration' && canManageIntegration}
-          />
+          <SectionHeading title="النسخ الاحتياطي" />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-2 border-y border-[var(--border-subtle)] text-xs">
             <div>
@@ -7005,14 +6998,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       )}
 
-      {activeTab === 'integration' && (canManageIntegration || canManageBackup) && (
-        <div className="mt-6">{renderOfflineBackupSection()}</div>
+      {activeSection === 'backup_reset' && (canManageIntegration || canManageBackup) && (
+        <div className={canManageBackup ? 'mt-6' : ''}>
+          {renderOfflineBackupSection(canManageBackup)}
+        </div>
       )}
 
-      {activeTab === 'integration' && canManageReset && (
+      {activeSection === 'backup_reset' && canManageReset && (
         <div
           className={
-            activeTab === 'integration' && (canManageIntegration || canManageBackup)
+            canManageIntegration || canManageBackup
               ? 'pt-6 mt-6 border-t border-[var(--border-subtle)]'
               : ''
           }
@@ -7028,8 +7023,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       )}
 
-      {/* 9) صفحة: اختصارات لوحة المفاتيح */}
-      {activeTab === 'shortcuts' && canManageShortcuts && (
+      {/* 9) قسم: اختصارات لوحة المفاتيح */}
+      {activeSection === 'shortcuts' && canManageShortcuts && (
         <div className="space-y-4">
           <SectionHeading
             title="إدارة اختصارات لوحة المفاتيح العامة"
@@ -7235,8 +7230,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       )}
 
-      {/* صفحة إدارة المستخدمين (تحت قائمة الصلاحيات /settings/users) */}
-      {activeTab === 'users' && canManageUsers && (
+      {/* قسم: المستخدمون والجلسات النشطة (تحت قائمة الصلاحيات /settings/users) */}
+      {activeSection === 'users' && canManageUsers && (
         <div className="space-y-4">
           <SectionHeading
             title="إدارة المستخدمين والحسابات وتعيين الخزائن"
@@ -7655,62 +7650,68 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       )}
 
-      {/* شريط الحفظ الموحّد المثبت أسفل الصفحات 1–6 */}
-      {isSaveBarSupportedTab && (isActiveTabDirty || isSavingAll || Boolean(saveBarFeedback)) && (
-        <div
-          data-testid="settings-sticky-save-bar"
-          className="sticky bottom-0 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 mt-6 border-t border-[var(--border-color)] bg-[var(--surface)] flex flex-wrap items-center justify-between gap-3"
-        >
-          <div className="flex items-center gap-2 text-xs font-bold">
-            {saveBarFeedback?.type === 'error' ? (
-              <span role="alert" className="ui-stock-out flex items-center gap-1.5">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{saveBarFeedback.message}</span>
-              </span>
-            ) : saveBarFeedback?.type === 'success' && !isActiveTabDirty ? (
-              <span role="status" className="ui-money-purchase flex items-center gap-1.5">
-                <CheckCircle className="w-4 h-4 shrink-0" />
-                <span>{saveBarFeedback.message}</span>
-              </span>
-            ) : isActiveTabDirty ? (
-              <span className="text-[var(--text-primary)] flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
-                <span>يوجد تغييرات غير محفوظة</span>
-              </span>
-            ) : null}
-          </div>
+          {/* شريط الحفظ الموحّد المثبت أسفل مساحة الإعدادات */}
+          {(hasAnyDirty || isSavingAll || (isSaveBarSupportedSection && Boolean(saveBarFeedback))) && (
+            <div
+              data-testid="settings-sticky-save-bar"
+              className="sticky bottom-0 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 mt-6 border-t border-[var(--border-color)] bg-[var(--surface)] flex flex-wrap items-center justify-between gap-3"
+            >
+              <div className="flex items-center gap-2 text-xs font-bold">
+                {saveBarFeedback?.type === 'error' ? (
+                  <span role="alert" className="ui-stock-out flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{saveBarFeedback.message}</span>
+                  </span>
+                ) : saveBarFeedback?.type === 'success' && !hasAnyDirty ? (
+                  <span role="status" className="ui-money-purchase flex items-center gap-1.5">
+                    <CheckCircle className="w-4 h-4 shrink-0" />
+                    <span>{saveBarFeedback.message}</span>
+                  </span>
+                ) : hasAnyDirty ? (
+                  <span className="text-[var(--text-primary)] flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                    <span>
+                      {dirtySectionCount > 1
+                        ? `يوجد تغييرات غير محفوظة في ${dirtySectionCount} أقسام`
+                        : 'يوجد تغييرات غير محفوظة'}
+                    </span>
+                  </span>
+                ) : null}
+              </div>
 
-          {(isActiveTabDirty || isSavingAll) && (
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                disabled={isSavingAll}
-                onClick={handleRevertActiveTab}
-                className="min-h-[44px] inline-flex items-center gap-1.5 px-4 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] text-[var(--text-primary)] font-bold text-xs transition cursor-pointer disabled:opacity-50"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>تراجع</span>
-              </button>
+              {(hasAnyDirty || isSavingAll) && (
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={isSavingAll}
+                    onClick={handleRevertActiveTab}
+                    className="min-h-[44px] inline-flex items-center gap-1.5 px-4 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] text-[var(--text-primary)] font-bold text-xs transition cursor-pointer disabled:opacity-50"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>تراجع</span>
+                  </button>
 
-              <button
-                type="button"
-                data-shortcut-save="true"
-                disabled={isSavingAll}
-                onClick={handleUnifiedSave}
-                className="min-h-[44px] inline-flex items-center gap-2 px-6 rounded-lg bg-[#168A4A] hover:bg-[#12703C] text-white font-bold text-xs transition cursor-pointer disabled:opacity-60"
-              >
-                {isSavingAll ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4" />
-                )}
-                <span>{isSavingAll ? 'جاري الحفظ...' : 'حفظ'}</span>
-                <ShortcutBadge actionId="general.save_form" className="!text-white/90 !border-white/35 !bg-white/10" />
-              </button>
+                  <button
+                    type="button"
+                    data-shortcut-save="true"
+                    disabled={isSavingAll}
+                    onClick={handleUnifiedSave}
+                    className="min-h-[44px] inline-flex items-center gap-2 px-6 rounded-lg bg-[#168A4A] hover:bg-[#12703C] text-white font-bold text-xs transition cursor-pointer disabled:opacity-60"
+                  >
+                    {isSavingAll ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    <span>{isSavingAll ? 'جاري الحفظ...' : 'حفظ'}</span>
+                    <ShortcutBadge actionId="general.save_form" className="!text-white/90 !border-white/35 !bg-white/10" />
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
-      )}
+      </div>
 
       {/* نوافذ تأكيد داخلية */}
       <UserModal
