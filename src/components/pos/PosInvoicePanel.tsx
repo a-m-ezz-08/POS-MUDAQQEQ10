@@ -666,7 +666,7 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
 
   return (
     <div
-      className="pos-surface pos-invoice-surface bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4 text-right select-none"
+      className="pos-surface pos-invoice-surface bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4 text-right"
       dir="rtl"
       data-sale-mode={saleMode}
     >
@@ -895,7 +895,7 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
                 className={`w-full min-h-[44px] px-2 text-xs font-mono font-bold text-center rounded-lg border focus:outline-none tabular-nums ${
                   canEditPosRates
                     ? 'bg-white border-slate-300 text-slate-900 focus:ring-2 focus:ring-purple-500'
-                    : 'bg-slate-100 border-slate-300 text-slate-600 cursor-not-allowed select-none'
+                    : 'bg-slate-100 border-slate-300 text-slate-600 cursor-not-allowed select-text'
                 }`}
               />
             </div>
@@ -932,7 +932,7 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
                 className={`w-full min-h-[44px] px-2 text-xs font-mono font-bold text-center rounded-lg border focus:outline-none tabular-nums ${
                   canEditPosRates
                     ? 'bg-white border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500'
-                    : 'bg-slate-100 border-slate-300 text-slate-600 cursor-not-allowed select-none'
+                    : 'bg-slate-100 border-slate-300 text-slate-600 cursor-not-allowed select-text'
                 }`}
               />
             </div>
@@ -1399,7 +1399,7 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
                 type="text"
                 readOnly
                 value={todayFormatted}
-                className="w-full min-h-[44px] px-3 py-2 text-xs font-mono font-bold text-center bg-slate-100 border border-slate-300 rounded-lg text-slate-700 cursor-not-allowed select-none tabular-nums"
+                className="w-full min-h-[44px] px-3 py-2 text-xs font-mono font-bold text-center bg-slate-100 border border-slate-300 rounded-lg text-slate-700 cursor-not-allowed select-text tabular-nums"
               />
             </div>
 
@@ -1625,7 +1625,7 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
                     placeholder="0.00"
                     className={`w-full min-w-[96px] min-h-[44px] px-2.5 py-1.5 rounded-lg font-mono font-bold text-sm focus:outline-none transition tabular-nums ${
                       isCashPaidReadOnly
-                        ? 'bg-slate-100 text-slate-700 cursor-not-allowed border border-slate-300 select-none'
+                        ? 'bg-slate-100 text-slate-700 cursor-not-allowed border border-slate-300 select-text'
                         : 'bg-white text-slate-900 border-2 border-red-500 focus:ring-2 focus:ring-red-400'
                     }`}
                   />
@@ -2017,7 +2017,7 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
                         className={`w-full min-h-[44px] px-2.5 py-2 text-xs font-mono font-bold text-center rounded-lg border tabular-nums focus:outline-none ${
                           canEditDeliveryFee
                             ? 'bg-white border-slate-300 text-slate-900 focus:ring-2 focus:ring-blue-500'
-                            : 'bg-slate-100 border-slate-300 text-slate-700 cursor-not-allowed select-none'
+                            : 'bg-slate-100 border-slate-300 text-slate-700 cursor-not-allowed select-text'
                         }`}
                       />
                       {canEditDeliveryFee && deliveryFeeManual && (
@@ -2217,7 +2217,7 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
                           placeholder="0.00"
                           className={`w-full min-w-[96px] min-h-[44px] px-2.5 py-1.5 rounded-lg font-mono font-bold text-sm focus:outline-none transition tabular-nums ${
                             isCashPaidReadOnly
-                              ? 'bg-slate-100 text-slate-700 cursor-not-allowed border border-slate-300 select-none'
+                              ? 'bg-slate-100 text-slate-700 cursor-not-allowed border border-slate-300 select-text'
                               : 'bg-white text-slate-900 border-2 border-red-500 focus:ring-2 focus:ring-red-400'
                           }`}
                         />

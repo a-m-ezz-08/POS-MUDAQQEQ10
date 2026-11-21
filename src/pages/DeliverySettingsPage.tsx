@@ -1284,7 +1284,7 @@ export const DeliverySettingsPage: React.FC<DeliverySettingsPageProps> = ({ user
               </div>
             </div>
 
-            <label className="min-h-[44px] inline-flex items-center gap-2.5 cursor-pointer select-none">
+            <label className="min-h-[44px] inline-flex items-center gap-2.5 cursor-pointer">
               <input
                 type="checkbox"
                 checked={zoneActive}
@@ -1434,7 +1434,7 @@ export const DeliverySettingsPage: React.FC<DeliverySettingsPageProps> = ({ user
               </p>
             </div>
 
-            <label className="min-h-[44px] inline-flex items-center gap-2.5 cursor-pointer select-none">
+            <label className="min-h-[44px] inline-flex items-center gap-2.5 cursor-pointer">
               <input
                 type="checkbox"
                 checked={driverActive}
@@ -1522,7 +1522,7 @@ export const DeliverySettingsPage: React.FC<DeliverySettingsPageProps> = ({ user
               </p>
             </div>
 
-            <label className="min-h-[44px] inline-flex items-center gap-2.5 cursor-pointer select-none">
+            <label className="min-h-[44px] inline-flex items-center gap-2.5 cursor-pointer">
               <input
                 type="checkbox"
                 checked={courierActive}

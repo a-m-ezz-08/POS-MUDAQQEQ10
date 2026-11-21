@@ -2288,7 +2288,7 @@ export const ProductFormPage: React.FC<ProductFormPageProps> = ({
                 <div className="max-w-full space-y-2">
                   <label
                     htmlFor="item-enable-bnpl"
-                    className="inline-flex items-center gap-2 min-h-[44px] text-xs font-bold text-[var(--text-primary)] cursor-pointer select-none"
+                    className="inline-flex items-center gap-2 min-h-[44px] text-xs font-bold text-[var(--text-primary)] cursor-pointer"
                   >
                     <input
                       type="checkbox"

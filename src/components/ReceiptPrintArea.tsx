@@ -234,7 +234,7 @@ export const ReceiptPrintArea: React.FC<ReceiptPrintAreaProps> = ({
 
   return (
     <div
-      className={`receipt-print-area p-3 sm:p-4 text-black bg-white font-sans text-[12px] leading-snug select-none max-w-full ${className}`}
+      className={`receipt-print-area p-3 sm:p-4 text-black bg-white font-sans text-[12px] leading-snug max-w-full ${className}`}
       dir="rtl"
       style={{
         color: '#000000',

@@ -592,7 +592,7 @@ export const PlatformsPage: React.FC<PlatformsPageProps> = ({
 
             {/* تقسيط المنصات BNPL — بدون صندوق ملون */}
             <div className="pt-3 border-t border-[var(--border-subtle)] flex flex-wrap items-center gap-4">
-              <label className="min-h-[44px] flex items-center gap-2 cursor-pointer select-none">
+              <label className="min-h-[44px] flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={enableBnpl}

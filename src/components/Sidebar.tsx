@@ -74,7 +74,7 @@ const MudaqqeqBrandLogoBox: React.FC<{ variant?: BrandLogoVariant }> = ({
         />
       ) : (
         <span
-          className="font-bold text-lg leading-none select-none"
+          className="font-bold text-lg leading-none"
           style={{ color: '#0A5FC2', fontWeight: 700 }}
           aria-label={MUDAQQEQ_LOGO_ALT}
         >
@@ -377,7 +377,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       : 'desktop';
 
     return (
-      <div className="flex flex-col h-full select-none" dir={isRtl ? 'rtl' : 'ltr'}>
+      <div className="flex flex-col h-full" dir={isRtl ? 'rtl' : 'ltr'}>
         {/* رأس القائمة الجانبية الثابت في كل الثيمات على الكمبيوتر */}
         {!isMobile && !isFlyout && (
           <div className="aurora-sidebar-brand items-center gap-3.5 px-4 pt-5 pb-4 min-h-[88px] border-b border-[var(--sidebar-border)] shrink-0">
@@ -449,7 +449,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {posShortcutKey && (
                   <kbd
                     dir="ltr"
-                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 inline-flex items-center px-1.5 py-0.5 rounded bg-white/20 text-white text-[10px] font-mono font-bold leading-none select-none shrink-0"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 inline-flex items-center px-1.5 py-0.5 rounded bg-white/20 text-white text-[10px] font-mono font-bold leading-none shrink-0"
                   >
                     {posShortcutKey}
                   </kbd>
@@ -579,7 +579,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {!isDropdown && groupShortcutKey && (
                       <kbd
                         dir="ltr"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 inline-flex items-center px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-600 text-[10px] font-mono font-bold leading-none select-none shrink-0"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 inline-flex items-center px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-600 text-[10px] font-mono font-bold leading-none shrink-0"
                       >
                         {groupShortcutKey}
                       </kbd>
@@ -709,7 +709,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 {subShortcutKey && (
                                   <kbd
                                     dir="ltr"
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 inline-flex items-center px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-600 text-[9.5px] font-mono font-bold leading-none select-none shrink-0"
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 inline-flex items-center px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-600 text-[9.5px] font-mono font-bold leading-none shrink-0"
                                   >
                                     {subShortcutKey}
                                   </kbd>
@@ -745,7 +745,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // محتوى الشريط الجانبي الضيق (64px) في وضع الأيقونات فقط
   const renderCollapsedContent = () => (
-    <div className="flex flex-col h-full select-none items-center pt-3.5 pb-2.5 w-16" dir={isRtl ? 'rtl' : 'ltr'}>
+    <div className="flex flex-col h-full items-center pt-3.5 pb-2.5 w-16" dir={isRtl ? 'rtl' : 'ltr'}>
       {/* شعار مدقق الثابت مع الرابط في الوضع المطوي (الشعار فقط بدون النص 44×44px) */}
       <div className="mb-3 shrink-0">
         <MudaqqeqBrandLink showText={false} variant="collapsed" />

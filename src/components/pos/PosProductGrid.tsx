@@ -487,7 +487,7 @@ export const PosProductGrid: React.FC<PosProductGridProps> = ({
                   onClick={() => {
                     if (!isDisabled) onAddToCart(item);
                   }}
-                  className={`pos-product-card group relative flex flex-col justify-between h-full rounded-xl border ${cardPaddingClass} transition text-center select-none ${
+                  className={`pos-product-card group relative flex flex-col justify-between h-full rounded-xl border ${cardPaddingClass} transition text-center ${
                     isDisabled
                       ? 'bg-slate-50/70 border-slate-200 opacity-60 cursor-not-allowed'
                       : 'bg-white border-slate-200 hover:border-cyan-400 hover:shadow-md cursor-pointer active:scale-[0.98]'

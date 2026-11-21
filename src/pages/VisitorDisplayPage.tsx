@@ -470,7 +470,7 @@ export const VisitorDisplayPage: React.FC<VisitorDisplayPageProps> = ({
     <div
       dir="rtl"
       data-testid="visitor-display-screen"
-      className={`fixed inset-0 w-screen h-screen overflow-hidden bg-white text-[#1E293B] select-none flex flex-col ${
+      className={`fixed inset-0 w-screen h-screen overflow-hidden bg-white text-[#1E293B] flex flex-col ${
         isCursorHidden ? 'cursor-none' : ''
       }`}
     >

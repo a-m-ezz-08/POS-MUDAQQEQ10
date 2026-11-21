@@ -248,12 +248,18 @@ export function resolveKeyboardShortcutsSettings(
     for (const def of KEYBOARD_SHORTCUT_DEFINITIONS) {
       const candidate = raw.bindings[def.id];
       if (candidate && typeof candidate === 'object') {
-        resolvedBindings[def.id] = {
-          key: def.fixed
-            ? def.defaultKey
-            : typeof candidate.key === 'string' && candidate.key.trim()
+        const normalizedCandidateKey =
+          typeof candidate.key === 'string' && candidate.key.trim()
             ? normalizeKeyString(candidate.key.trim())
-            : def.defaultKey,
+            : '';
+        const safeKey =
+          !def.fixed &&
+          normalizedCandidateKey &&
+          !EXPLICIT_FORBIDDEN_KEYS.has(normalizedCandidateKey.toUpperCase())
+            ? normalizedCandidateKey
+            : def.defaultKey;
+        resolvedBindings[def.id] = {
+          key: def.fixed ? def.defaultKey : safeKey,
           enabled:
             typeof candidate.enabled === 'boolean' ? candidate.enabled : def.defaultEnabled
         };
@@ -327,6 +333,7 @@ export function normalizeKeyString(raw: string): string {
     .map(p => p.trim())
     .filter(Boolean);
   let hasCtrl = false;
+  let hasCmd = false;
   let hasAlt = false;
   let hasShift = false;
   let baseKey = '';
@@ -335,6 +342,8 @@ export function normalizeKeyString(raw: string): string {
     const upper = part.toUpperCase();
     if (upper === 'CTRL' || upper === 'CONTROL') {
       hasCtrl = true;
+    } else if (upper === 'CMD' || upper === 'COMMAND' || upper === 'META') {
+      hasCmd = true;
     } else if (upper === 'ALT' || upper === 'OPTION') {
       hasAlt = true;
     } else if (upper === 'SHIFT') {
@@ -358,6 +367,7 @@ export function normalizeKeyString(raw: string): string {
 
   const mods: string[] = [];
   if (hasCtrl) mods.push('Ctrl');
+  if (hasCmd) mods.push('Cmd');
   if (hasAlt) mods.push('Alt');
   if (hasShift) mods.push('Shift');
   return baseKey ? [...mods, baseKey].join('+') : mods.join('+');
@@ -410,6 +420,7 @@ export function formatKeyboardEventToKey(e: KeyLikeEvent): string | null {
 
   const mods: string[] = [];
   if (e.ctrlKey) mods.push('Ctrl');
+  if (e.metaKey) mods.push('Cmd');
   if (e.altKey) mods.push('Alt');
   if (e.shiftKey) mods.push('Shift');
 
@@ -420,6 +431,8 @@ const EXPLICIT_FORBIDDEN_KEYS = new Set<string>([
   'F5',
   'F11',
   'F12',
+  'CTRL+C',
+  'CMD+C',
   'CTRL+W',
   'CTRL+T',
   'CTRL+N',

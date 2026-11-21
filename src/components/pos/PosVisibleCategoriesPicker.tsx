@@ -328,7 +328,7 @@ export const PosVisibleCategoriesPicker: React.FC<PosVisibleCategoriesPickerProp
             return (
               <div key={root.id} className="p-2 space-y-1">
                 <div className="flex items-center justify-between gap-2 px-1.5 py-1 rounded-lg hover:bg-[var(--surface-subtle)]">
-                  <label className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer select-none">
+                  <label className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={isRootSelected}
@@ -369,7 +369,7 @@ export const PosVisibleCategoriesPicker: React.FC<PosVisibleCategoriesPickerProp
                       return (
                         <label
                           key={sub.id}
-                          className="flex items-center justify-between gap-2 px-1.5 py-1 rounded-lg hover:bg-[var(--surface-subtle)] cursor-pointer select-none"
+                          className="flex items-center justify-between gap-2 px-1.5 py-1 rounded-lg hover:bg-[var(--surface-subtle)] cursor-pointer"
                         >
                           <div className="flex items-center gap-2 min-w-0">
                             <input

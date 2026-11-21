@@ -3316,7 +3316,7 @@ export const POSPage: React.FC<POSPageProps> = ({
 
   return (
     <div
-      className={`flex flex-col w-full max-w-full overflow-x-clip select-none ${
+      className={`flex flex-col w-full max-w-full overflow-x-clip ${
         activeMobileTab === 'products' ? 'pb-36' : 'pb-24'
       } md:pb-0`}
       dir="rtl"

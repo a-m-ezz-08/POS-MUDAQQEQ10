@@ -763,7 +763,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               />
             </div>
 
-            <label className="min-h-[44px] inline-flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer select-none">
+            <label className="min-h-[44px] inline-flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
               <input
                 type="checkbox"
                 checked={showOwnPwd}

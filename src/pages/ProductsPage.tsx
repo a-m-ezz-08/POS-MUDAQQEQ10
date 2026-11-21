@@ -629,7 +629,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
           />
         </div>
 
-        <label className="min-h-[44px] inline-flex items-center gap-2 text-sm text-[var(--text-primary)] cursor-pointer select-none px-2">
+        <label className="min-h-[44px] inline-flex items-center gap-2 text-sm text-[var(--text-primary)] cursor-pointer px-2">
           <input
             type="checkbox"
             checked={barcodeOnly}

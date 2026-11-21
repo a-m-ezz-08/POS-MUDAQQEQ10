@@ -338,7 +338,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   return (
     <div
       dir={isRtl ? 'rtl' : 'ltr'}
-      className="relative min-h-[calc(100vh/var(--app-zoom,1))] w-full overflow-x-hidden flex items-center justify-center bg-gradient-to-br from-[#EBF5FB] via-[#F4F9FD] to-[#E5F2FA] login-gradient-bg px-4 py-4 md:p-6 select-none"
+      className="relative min-h-[calc(100vh/var(--app-zoom,1))] w-full overflow-x-hidden flex items-center justify-center bg-gradient-to-br from-[#EBF5FB] via-[#F4F9FD] to-[#E5F2FA] login-gradient-bg px-4 py-4 md:p-6"
     >
       <div className="absolute top-[-5%] start-[-5%] w-72 sm:w-96 h-72 sm:h-96 rounded-full bg-cyan-200/30 blur-3xl pointer-events-none animate-float-gentle" />
       <div className="absolute bottom-[-5%] end-[-5%] w-80 sm:w-[420px] h-80 sm:h-[420px] rounded-full bg-sky-200/30 blur-3xl pointer-events-none animate-float-reverse" />
@@ -375,7 +375,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 />
               ) : (
                 <span
-                  className="font-extrabold text-2xl md:text-5xl leading-none select-none"
+                  className="font-extrabold text-2xl md:text-5xl leading-none"
                   style={{ color: '#0A5FC2' }}
                   aria-label={MUDAQQEQ_LOGO_ALT}
                 >

@@ -532,7 +532,7 @@ export const SystemResetSection: React.FC<SystemResetSectionProps> = ({
                     <span>لا تملك صلاحية النسخ الاحتياطي، لن تُحفظ نسخة قبل المسح</span>
                   </div>
 
-                  <label className="min-h-[44px] inline-flex items-center gap-2.5 px-3 py-2 rounded-lg border border-[var(--border-color)] bg-[var(--surface-subtle)] cursor-pointer select-none">
+                  <label className="min-h-[44px] inline-flex items-center gap-2.5 px-3 py-2 rounded-lg border border-[var(--border-color)] bg-[var(--surface-subtle)] cursor-pointer">
                     <input
                       type="checkbox"
                       checked={understoodNoBackup}

@@ -193,6 +193,7 @@ export const KeyboardShortcutsProvider: React.FC<KeyboardShortcutsProviderProps>
       const pressedKey = formatKeyboardEventToKey(e);
       if (!pressedKey) return;
       const upperPressed = normalizeKeyString(pressedKey).toUpperCase();
+      if (upperPressed === 'CTRL+C' || upperPressed === 'CMD+C') return;
 
       // هل توجد نافذة منبثقة مفتوحة حالياً؟
       const modalEntries = modalStackRef.current;
@@ -558,7 +559,7 @@ export const ShortcutBadge: React.FC<{
     <kbd
       dir="ltr"
       aria-label={`اختصار ${SHORTCUT_DEFINITION_MAP[actionId]?.label || ''}: ${keyText}`}
-      className={`no-print inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold leading-none tracking-tight bg-black/15 text-current border border-current/20 shrink-0 select-none ${className}`.trim()}
+      className={`no-print inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold leading-none tracking-tight bg-black/15 text-current border border-current/20 shrink-0 ${className}`.trim()}
     >
       {keyText}
     </kbd>
