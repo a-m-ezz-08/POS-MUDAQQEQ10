@@ -47,6 +47,9 @@ import {
   api,
   setAuthToken,
   setOnSessionExpired,
+  setOnSessionMismatch,
+  setBoundSessionIdentity,
+  getBoundSessionIdentity,
   subscribeApiStatus,
   getLastUserInteractionAt,
   getLastForegroundApiActivitySentAt,
@@ -57,6 +60,7 @@ import {
   ensureDeviceIdentity,
   loadOfflineSnapshot,
   saveOfflineSnapshot,
+  updateOfflineCachedSalesRules,
   syncFullStoresToOfflineDb,
   createOfflineInvoiceInDb,
   getPendingOfflineInvoices,
@@ -75,8 +79,18 @@ import {
   StorageQuotaStatus,
   subscribeOfflineDb
 } from './offline/db';
+import { acquireOfflineLock, releaseOfflineLock, hasOfflineLockOwnership } from './offline/offlineLock';
 import { useOfflineMode, subscribeOutboxSynced } from './hooks/useOfflineMode';
 import { getCartJournal } from './offline/cartJournalInstance';
+import {
+  SESSION_META_STORAGE_KEY,
+  clearSharedHumanActivity,
+  computeSessionTag,
+  getOrInitTabId,
+  postTabSyncMessage,
+  subscribeTabSyncMessages,
+  writeSessionMeta
+} from './utils/tabSession';
 import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { MobileBottomNav } from './components/MobileBottomNav';
@@ -124,10 +138,14 @@ import { hasPermission, isSystemOwner } from './utils/permissions';
 import {
   normalizeNavigationTarget,
   resolvePathToTarget,
+  getHrefForTarget,
+  getHrefForItemRoute,
+  isPlainLeftClick,
   isVisitorScreenOnlyUser,
   isPageAllowedByFeatureModes,
   getDefaultHomeTarget,
-  type FeatureModeFlags
+  type FeatureModeFlags,
+  type HrefBuildOptions
 } from './config/navigation';
 import {
   readUiPrefs,
@@ -140,6 +158,20 @@ import {
 const OFFLINE_SYNC_INTERVAL_MS = 10 * 60 * 1000; // 10 دقائق
 const HOURLY_PENDING_ALERT_INTERVAL_MS = 60 * 60 * 1000; // كل ساعة
 const SALES_RULES_CACHE_KEY = 'mudaqqeq_sales_rules_cache_v1';
+
+function getCurrentBrowserUrl(): string {
+  if (typeof window === 'undefined') return '/';
+  return `${window.location.pathname || '/'}${window.location.search || ''}${window.location.hash || ''}`;
+}
+
+function readUrlSearchParam(rawUrl: string, key: string): string {
+  try {
+    const parsed = new URL(rawUrl || '/', 'http://local');
+    return parsed.searchParams.get(key) || '';
+  } catch {
+    return '';
+  }
+}
 
 function readCachedSalesRules(): SalesRules | undefined {
   if (typeof window === 'undefined') return undefined;
@@ -180,17 +212,26 @@ export default function App() {
     setDeviceName
   } = useOfflineMode();
 
-  // Current user state (persisted in localStorage)
+  // Current user state (persisted in localStorage) + ربط هوية جلسة هذا التبويب لمنع استخدام رمز مستخدم آخر
   const [user, setUser] = useState<UserAccount | null>(() => {
     const saved = localStorage.getItem('pos_user');
     const token = localStorage.getItem('pos_token');
     if (saved && token) {
       try {
-        return JSON.parse(saved);
+        const parsedUser = JSON.parse(saved) as UserAccount;
+        const tag = computeSessionTag(token, parsedUser?.id);
+        if (parsedUser?.id && tag) {
+          const identity = { userId: parsedUser.id, sessionTag: tag };
+          setBoundSessionIdentity(identity);
+          writeSessionMeta(identity);
+        }
+        return parsedUser;
       } catch (_) {}
     }
     return null;
   });
+
+  const tabId = useMemo(() => getOrInitTabId(), []);
 
   // Language state: Arabic by default, persisted in localStorage
   const [lang, setLang] = useState<'en' | 'ar'>(() => {
@@ -255,11 +296,11 @@ export default function App() {
 
   const [currentPage, setCurrentPage] = useState<PageType>(() => {
     if (typeof window === 'undefined') return bootFeatureFlags.salesOnlyMode ? 'pos' : 'dashboard';
-    return resolvePathToTarget(window.location.pathname, user, bootFeatureFlags).page;
+    return resolvePathToTarget(getCurrentBrowserUrl(), user, bootFeatureFlags).page;
   });
   const [currentTab, setCurrentTab] = useState<string | undefined>(() => {
     if (typeof window === 'undefined') return undefined;
-    return resolvePathToTarget(window.location.pathname, user, bootFeatureFlags).tab;
+    return resolvePathToTarget(getCurrentBrowserUrl(), user, bootFeatureFlags).tab;
   });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
@@ -271,7 +312,7 @@ export default function App() {
     { mode: 'new' } | { mode: 'edit'; itemId: string } | null
   >(() => {
     if (typeof window === 'undefined') return null;
-    return resolvePathToTarget(window.location.pathname, user, bootFeatureFlags).itemRoute ?? null;
+    return resolvePathToTarget(getCurrentBrowserUrl(), user, bootFeatureFlags).itemRoute ?? null;
   });
   const [isItemFormDirty, setIsItemFormDirty] = useState(false);
   const [isSettingsDirty, setIsSettingsDirty] = useState(false);
@@ -361,24 +402,69 @@ export default function App() {
     return { salesOnlyMode, platformsEnabled };
   }, [config.salesRules]);
 
-  const executeNavigate = useCallback((page: PageType, tab?: string) => {
-    const normalized = normalizeNavigationTarget(page, tab, user, featureFlags);
-    setIsItemFormDirty(false);
-    setIsSettingsDirty(false);
-    setItemRoute(null);
-    setEditingItem(null);
-    setCurrentPage(normalized.page);
-    setCurrentTab(normalized.tab);
-    setIsMobileMenuOpen(false);
-    try {
-      const currentFullPath = `${window.location.pathname}${window.location.hash || ''}`;
-      if (currentFullPath !== normalized.path) {
-        window.history.pushState({}, '', normalized.path);
+  const executeNavigate = useCallback(
+    (page: PageType, tab?: string, navOptions?: Pick<HrefBuildOptions, 'searchParams' | 'hash'>) => {
+      const normalized = normalizeNavigationTarget(page, tab, user, featureFlags);
+      const targetUrl = getHrefForTarget(page, tab, {
+        searchParams: navOptions?.searchParams,
+        hash: navOptions?.hash,
+        user,
+        flags: featureFlags
+      });
+      setIsItemFormDirty(false);
+      setIsSettingsDirty(false);
+      setItemRoute(null);
+      setEditingItem(null);
+      setCurrentPage(normalized.page);
+      setCurrentTab(normalized.tab);
+      setIsMobileMenuOpen(false);
+      if (navOptions?.searchParams) {
+        if ('search' in navOptions.searchParams) {
+          setDeliveryOrdersInitialSearch(String(navOptions.searchParams.search || ''));
+        }
+        if ('supplierId' in navOptions.searchParams) {
+          setPurchasesInitialSupplierId(String(navOptions.searchParams.supplierId || ''));
+        }
+        if ('customerId' in navOptions.searchParams) {
+          setCustomersInitialCustomerId(String(navOptions.searchParams.customerId || ''));
+        }
+        if ('cashboxId' in navOptions.searchParams) {
+          setCashboxesInitialCashboxId(String(navOptions.searchParams.cashboxId || ''));
+        }
+        if ('platformId' in navOptions.searchParams) {
+          setPlatformsInitialPlatformId(String(navOptions.searchParams.platformId || ''));
+        }
+        if ('category' in navOptions.searchParams) {
+          setItemsInitialCategoryId(String(navOptions.searchParams.category || ''));
+        }
+        if ('operationType' in navOptions.searchParams) {
+          setBulkEditOperationTypeParam(String(navOptions.searchParams.operationType || ''));
+        }
+      } else {
+        setPurchasesInitialSupplierId('');
+        setCustomersInitialCustomerId('');
+        setCashboxesInitialCashboxId('');
+        setPlatformsInitialPlatformId('');
+        setItemsInitialCategoryId('');
+        setBulkEditOperationTypeParam(
+          page === 'bulk_edit_excel' && (tab === 'add_items' || tab === 'add_categories') ? tab : ''
+        );
       }
-    } catch (_) {}
-  }, [user, featureFlags]);
+      try {
+        const currentFullPath = getCurrentBrowserUrl();
+        if (currentFullPath !== targetUrl) {
+          window.history.pushState({}, '', targetUrl);
+        }
+      } catch (_) {}
+    },
+    [user, featureFlags]
+  );
 
-  const handleNavigate = (page: PageType, tab?: string) => {
+  const handleNavigate = (
+    page: PageType,
+    tab?: string,
+    navOptions?: Pick<HrefBuildOptions, 'searchParams' | 'hash'>
+  ) => {
     if (isOffline && OFFLINE_FORBIDDEN_PAGES.includes(page)) {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       setToastInvoiceMessage('متاح عند رجوع الاتصال');
@@ -393,7 +479,7 @@ export default function App() {
         source: 'item',
         onConfirm: () => {
           setPendingNavConfirm(null);
-          executeNavigate(page, tab);
+          executeNavigate(page, tab, navOptions);
         }
       });
       return;
@@ -411,13 +497,13 @@ export default function App() {
             settingsRevertRef.current?.();
             setIsSettingsDirty(false);
             setPendingNavConfirm(null);
-            executeNavigate(page, tab);
+            executeNavigate(page, tab, navOptions);
           }
         });
         return;
       }
     }
-    executeNavigate(page, tab);
+    executeNavigate(page, tab, navOptions);
   };
 
   useEffect(() => {
@@ -469,7 +555,27 @@ export default function App() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [invoicePrintExtra, setInvoicePrintExtra] = useState<{ changeGiven?: number; customerBalanceAfter?: number }>({});
   const [preselectedInvoiceForReturn, setPreselectedInvoiceForReturn] = useState<Invoice | null>(null);
-  const [deliveryOrdersInitialSearch, setDeliveryOrdersInitialSearch] = useState<string>('');
+  const [deliveryOrdersInitialSearch, setDeliveryOrdersInitialSearch] = useState<string>(() =>
+    readUrlSearchParam(getCurrentBrowserUrl(), 'search')
+  );
+  const [purchasesInitialSupplierId, setPurchasesInitialSupplierId] = useState<string>(() =>
+    readUrlSearchParam(getCurrentBrowserUrl(), 'supplierId')
+  );
+  const [customersInitialCustomerId, setCustomersInitialCustomerId] = useState<string>(() =>
+    readUrlSearchParam(getCurrentBrowserUrl(), 'customerId')
+  );
+  const [cashboxesInitialCashboxId, setCashboxesInitialCashboxId] = useState<string>(() =>
+    readUrlSearchParam(getCurrentBrowserUrl(), 'cashboxId')
+  );
+  const [platformsInitialPlatformId, setPlatformsInitialPlatformId] = useState<string>(() =>
+    readUrlSearchParam(getCurrentBrowserUrl(), 'platformId')
+  );
+  const [itemsInitialCategoryId, setItemsInitialCategoryId] = useState<string>(() =>
+    readUrlSearchParam(getCurrentBrowserUrl(), 'category')
+  );
+  const [bulkEditOperationTypeParam, setBulkEditOperationTypeParam] = useState<string>(() =>
+    readUrlSearchParam(getCurrentBrowserUrl(), 'operationType')
+  );
   const [initialItemToSell, setInitialItemToSell] = useState<Item | null>(null);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
 
@@ -639,21 +745,148 @@ export default function App() {
     return true;
   }, []);
 
-  // Handle session expiry from API interceptor (لا يوقف البيع أثناء انقطاع الإنترنت)
+  // Handle session expiry & cross-tab user-switch mismatch from API interceptor (لا يوقف البيع أثناء انقطاع الإنترنت)
   useEffect(() => {
     setOnSessionExpired((msg?: string) => {
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         return;
       }
+      const bound = getBoundSessionIdentity();
+      const curToken = localStorage.getItem('pos_token');
+      let curUserId = '';
+      try {
+        const raw = localStorage.getItem('pos_user');
+        if (raw) curUserId = String(JSON.parse(raw)?.id || '');
+      } catch (_) {}
+      const curTag = curToken && curUserId ? computeSessionTag(curToken, curUserId) : '';
+      const isSameStoredSession =
+        !bound || !curToken || (curUserId === bound.userId && curTag === bound.sessionTag);
+
+      setBoundSessionIdentity(null);
       setUser(null);
-      localStorage.removeItem('pos_user');
-      localStorage.removeItem('pos_token');
-      localStorage.removeItem('pos_session_offline');
-      localStorage.removeItem('pos_session_expires_at');
+      if (isSameStoredSession) {
+        localStorage.removeItem('pos_user');
+        localStorage.removeItem('pos_token');
+        localStorage.removeItem('pos_session_offline');
+        localStorage.removeItem('pos_session_expires_at');
+        writeSessionMeta(null);
+        clearSharedHumanActivity();
+        releaseOfflineLock();
+        if (bound) {
+          postTabSyncMessage({
+            type: 'AUTH_EXPIRED',
+            message: msg,
+            userId: bound.userId,
+            sessionTag: bound.sessionTag,
+            at: Date.now()
+          });
+        }
+      }
       setSessionExpiredMessage(msg || null);
       setSessionExpiredNotice(true);
     });
+
+    setOnSessionMismatch((msg: string) => {
+      // عدم حذف pos_token من localStorage هنا حتى لا نمسح جلسة المستخدم الأحدث في التبويب الآخر
+      setBoundSessionIdentity(null);
+      setUser(null);
+      releaseOfflineLock();
+      setSessionExpiredMessage(msg);
+      setSessionExpiredNotice(true);
+    });
+
+    return () => {
+      setOnSessionMismatch(null);
+    };
   }, []);
+
+  // مزامنة تسجيل الخروج وانتهاء الجلسة وتبديل المستخدم وتحديث المخزون أونلاين بين التبويبات
+  useEffect(() => {
+    const unsubMessages = subscribeTabSyncMessages((msg) => {
+      if (msg.type === 'AUTH_LOGOUT') {
+        const bound = getBoundSessionIdentity();
+        if (!bound || !msg.sessionTag || msg.sessionTag === bound.sessionTag) {
+          setBoundSessionIdentity(null);
+          setUser(null);
+          releaseOfflineLock();
+          setSessionExpiredMessage('تم تسجيل الخروج من تبويب آخر؛ يرجى تسجيل الدخول مجددًا.');
+          setSessionExpiredNotice(true);
+        }
+      } else if (msg.type === 'AUTH_EXPIRED') {
+        const bound = getBoundSessionIdentity();
+        if (!bound || !msg.sessionTag || msg.sessionTag === bound.sessionTag) {
+          setBoundSessionIdentity(null);
+          setUser(null);
+          releaseOfflineLock();
+          setSessionExpiredMessage(msg.message || 'انتهت صلاحية الجلسة في تبويب آخر؛ يرجى تسجيل الدخول مجددًا.');
+          setSessionExpiredNotice(true);
+        }
+      } else if (msg.type === 'AUTH_SESSION_CHANGED') {
+        const bound = getBoundSessionIdentity();
+        if (bound && (msg.userId !== bound.userId || msg.sessionTag !== bound.sessionTag)) {
+          setBoundSessionIdentity(null);
+          setUser(null);
+          releaseOfflineLock();
+          setSessionExpiredMessage(
+            'تم تبديل المستخدم أو بدء جلسة جديدة في تبويب آخر؛ يرجى إعادة تحميل الصفحة أو تسجيل الدخول للمتابعة.'
+          );
+          setSessionExpiredNotice(true);
+        }
+      } else if (msg.type === 'POS_STOCK_UPDATED') {
+        if (msg.sourceTabId !== tabId && isOnline && !isOffline && getBoundSessionIdentity()) {
+          api
+            .getItems()
+            .then((r) => {
+              if (r?.items) setItems(r.items);
+            })
+            .catch(() => {});
+        }
+      }
+    });
+
+    const handleStorageSessionSync = (e: StorageEvent) => {
+      if (e.key !== 'pos_token' && e.key !== 'pos_user' && e.key !== SESSION_META_STORAGE_KEY && e.key !== null) {
+        return;
+      }
+      const bound = getBoundSessionIdentity();
+      if (!bound) return;
+
+      const curToken = localStorage.getItem('pos_token');
+      const rawUser = localStorage.getItem('pos_user');
+      let curUserId = '';
+      if (rawUser) {
+        try {
+          curUserId = String(JSON.parse(rawUser)?.id || '');
+        } catch (_) {}
+      }
+
+      if (!curToken || !curUserId) {
+        setBoundSessionIdentity(null);
+        setUser(null);
+        releaseOfflineLock();
+        setSessionExpiredMessage('تم تسجيل الخروج من تبويب آخر؛ يرجى تسجيل الدخول مجددًا.');
+        setSessionExpiredNotice(true);
+        return;
+      }
+
+      const curTag = computeSessionTag(curToken, curUserId);
+      if (curUserId !== bound.userId || curTag !== bound.sessionTag) {
+        setBoundSessionIdentity(null);
+        setUser(null);
+        releaseOfflineLock();
+        setSessionExpiredMessage(
+          'تم تبديل الحساب في تبويب آخر؛ تم إيقاف هذا التبويب لحماية الجلسة. أعد تحميل الصفحة أو سجّل الدخول للمتابعة.'
+        );
+        setSessionExpiredNotice(true);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageSessionSync);
+    return () => {
+      unsubMessages();
+      window.removeEventListener('storage', handleStorageSessionSync);
+    };
+  }, [tabId, isOnline, isOffline]);
 
   // عند رجوع الاتصال بعد جلسة أوفلاين أو انتهاء رمز الجلسة أثناء العمل أوفلاين: يُطلب تسجيل دخول جديد ثم تُرفع العمليات المعلّقة
   useEffect(() => {
@@ -664,11 +897,24 @@ export default function App() {
     const isTokenExpired = expAt > 0 && Date.now() >= expAt;
 
     if (isOfflineTok || isTokenExpired) {
+      const bound = getBoundSessionIdentity();
+      setBoundSessionIdentity(null);
       setUser(null);
       localStorage.removeItem('pos_user');
       localStorage.removeItem('pos_token');
       localStorage.removeItem('pos_session_offline');
       localStorage.removeItem('pos_session_expires_at');
+      writeSessionMeta(null);
+      clearSharedHumanActivity();
+      releaseOfflineLock();
+      if (bound) {
+        postTabSyncMessage({
+          type: 'AUTH_EXPIRED',
+          userId: bound.userId,
+          sessionTag: bound.sessionTag,
+          at: Date.now()
+        });
+      }
       setSessionExpiredMessage(null);
       setSessionExpiredNotice(true);
     }
@@ -729,18 +975,32 @@ export default function App() {
       const now = Date.now();
       const idleMs = now - getLastUserInteractionAt();
 
-      // 1) التحقق من تجاوز مهلة عدم النشاط الفعلية للمستخدم
+      // 1) التحقق من تجاوز مهلة عدم النشاط الفعلية للمستخدم (مزامنة بين تبويبات نفس الجلسة)
       if (idleMs >= timeoutMs) {
+        const bound = getBoundSessionIdentity();
         if (isOnline && !isOfflineTok) {
           api.logout().catch(() => {});
         } else {
           setAuthToken(null);
         }
+        setBoundSessionIdentity(null);
         setUser(null);
         localStorage.removeItem('pos_user');
         localStorage.removeItem('pos_token');
         localStorage.removeItem('pos_session_offline');
         localStorage.removeItem('pos_session_expires_at');
+        writeSessionMeta(null);
+        clearSharedHumanActivity();
+        releaseOfflineLock();
+        if (bound) {
+          postTabSyncMessage({
+            type: 'AUTH_EXPIRED',
+            message: 'انتهت الجلسة بسبب عدم النشاط، يرجى تسجيل الدخول مجددًا',
+            userId: bound.userId,
+            sessionTag: bound.sessionTag,
+            at: Date.now()
+          });
+        }
         setSessionExpiredMessage('انتهت الجلسة بسبب عدم النشاط، يرجى تسجيل الدخول مجددًا');
         setSessionExpiredNotice(true);
         return;
@@ -765,16 +1025,30 @@ export default function App() {
     const handleWindowFocus = () => {
       const now = Date.now();
       if (now - getLastUserInteractionAt() >= timeoutMs) {
+        const bound = getBoundSessionIdentity();
         if (isOnline && !isOfflineTok) {
           api.logout().catch(() => {});
         } else {
           setAuthToken(null);
         }
+        setBoundSessionIdentity(null);
         setUser(null);
         localStorage.removeItem('pos_user');
         localStorage.removeItem('pos_token');
         localStorage.removeItem('pos_session_offline');
         localStorage.removeItem('pos_session_expires_at');
+        writeSessionMeta(null);
+        clearSharedHumanActivity();
+        releaseOfflineLock();
+        if (bound) {
+          postTabSyncMessage({
+            type: 'AUTH_EXPIRED',
+            message: 'انتهت الجلسة بسبب عدم النشاط، يرجى تسجيل الدخول مجددًا',
+            userId: bound.userId,
+            sessionTag: bound.sessionTag,
+            at: Date.now()
+          });
+        }
         setSessionExpiredMessage('انتهت الجلسة بسبب عدم النشاط، يرجى تسجيل الدخول مجددًا');
         setSessionExpiredNotice(true);
         return;
@@ -867,7 +1141,7 @@ export default function App() {
         // رفع أي عمليات معلقة في outbox بالترتيب قبل جلب النسخة المحدثة من الخادم
         const isSheetsHealthyForSync =
           configData.dataMode !== 'sheets' || configData.connectionHealth?.healthy !== false;
-        if (isSheetsHealthyForSync) {
+        if (isSheetsHealthyForSync && hasOfflineLockOwnership()) {
           const pendingCnt = await getOutboxPendingCount().catch(() => 0);
           if (pendingCnt > 0) {
             await syncOutboxOperations({ user, skipSnapshotRefresh: true }).catch(() => {});
@@ -1041,11 +1315,24 @@ export default function App() {
                 user: refreshedCurrentUser,
                 users: resolvedUsersList
               }).catch(() => {});
+              const bound = getBoundSessionIdentity();
+              setBoundSessionIdentity(null);
               setUser(null);
               localStorage.removeItem('pos_user');
               localStorage.removeItem('pos_token');
               localStorage.removeItem('pos_session_offline');
               localStorage.removeItem('pos_session_expires_at');
+              writeSessionMeta(null);
+              clearSharedHumanActivity();
+              releaseOfflineLock();
+              if (bound) {
+                postTabSyncMessage({
+                  type: 'AUTH_EXPIRED',
+                  userId: bound.userId,
+                  sessionTag: bound.sessionTag,
+                  at: Date.now()
+                });
+              }
               setSessionExpiredNotice(true);
               return;
             }
@@ -1375,6 +1662,12 @@ export default function App() {
 
   // Auth Handlers
   const handleLoginSuccess = (session: AuthSession) => {
+    const activeToken = session.token || localStorage.getItem('pos_token') || '';
+    const sessionTag = computeSessionTag(activeToken, session.user.id);
+    const identity = sessionTag ? { userId: session.user.id, sessionTag } : null;
+    setBoundSessionIdentity(identity);
+    writeSessionMeta(identity);
+
     setUser(session.user);
     localStorage.setItem('pos_user', JSON.stringify(session.user));
     localStorage.setItem('pos_session_offline', session.offline ? 'true' : 'false');
@@ -1384,17 +1677,48 @@ export default function App() {
     recordUserInteraction();
     setSessionExpiredNotice(false);
     setSessionExpiredMessage(null);
+
+    if (identity) {
+      postTabSyncMessage({
+        type: 'AUTH_SESSION_CHANGED',
+        userId: identity.userId,
+        sessionTag: identity.sessionTag,
+        at: Date.now()
+      });
+    }
+
+    const currentFullUrl = getCurrentBrowserUrl();
+    const currentPathOnly = typeof window !== 'undefined' ? window.location.pathname : '/';
+    const resolvedCurrent = resolvePathToTarget(currentFullUrl, session.user, featureFlags);
     const homeTarget = getDefaultHomeTarget(featureFlags);
-    const normalized = normalizeNavigationTarget(homeTarget.page, undefined, session.user, featureFlags);
-    setCurrentPage(normalized.page);
-    setCurrentTab(normalized.tab);
+    const normalizedHome = normalizeNavigationTarget(homeTarget.page, undefined, session.user, featureFlags);
+    const useDeepUrl =
+      currentPathOnly !== '/' &&
+      currentPathOnly !== '/login' &&
+      (!resolvedCurrent.redirected || Boolean(resolvedCurrent.itemRoute));
+    const nextPage = useDeepUrl ? resolvedCurrent.page : normalizedHome.page;
+    const nextTab = useDeepUrl ? resolvedCurrent.tab : normalizedHome.tab;
+    const nextUrl = useDeepUrl ? resolvedCurrent.path : normalizedHome.path;
+    const nextItemRoute = useDeepUrl ? resolvedCurrent.itemRoute ?? null : null;
+
+    setCurrentPage(nextPage);
+    setCurrentTab(nextTab);
+    setItemRoute(nextItemRoute);
     try {
-      if (window.location.pathname !== normalized.path) {
-        window.history.replaceState({}, '', normalized.path);
+      if (getCurrentBrowserUrl() !== nextUrl) {
+        window.history.replaceState({}, '', nextUrl);
       }
     } catch (_) {}
+
     if (!session.offline && (typeof navigator === 'undefined' || navigator.onLine !== false)) {
-      syncOutboxOperations({ user: session.user }).catch(() => {});
+      acquireOfflineLock()
+        .then((snap) => {
+          if (snap.hasOwnership) {
+            return syncOutboxOperations({ user: session.user });
+          }
+          return undefined;
+        })
+        .catch(() => {});
     }
     try {
       const journal = getCartJournal();
@@ -1417,12 +1741,25 @@ export default function App() {
         });
       } catch (_) {}
     }
+    const bound = getBoundSessionIdentity();
+    setBoundSessionIdentity(null);
     setLogoutGuardModal(null);
     setUser(null);
     localStorage.removeItem('pos_user');
     localStorage.removeItem('pos_token');
     localStorage.removeItem('pos_session_offline');
     localStorage.removeItem('pos_session_expires_at');
+    writeSessionMeta(null);
+    clearSharedHumanActivity();
+    releaseOfflineLock();
+    if (bound) {
+      postTabSyncMessage({
+        type: 'AUTH_LOGOUT',
+        userId: bound.userId,
+        sessionTag: bound.sessionTag,
+        at: Date.now()
+      });
+    }
   };
 
   const handleLogout = async () => {
@@ -1472,14 +1809,29 @@ export default function App() {
         }
       }
     }
+    const bound = getBoundSessionIdentity();
+    setBoundSessionIdentity(null);
     setUser(null);
     localStorage.removeItem('pos_user');
     localStorage.removeItem('pos_token');
     localStorage.removeItem('pos_session_offline');
     localStorage.removeItem('pos_session_expires_at');
+    writeSessionMeta(null);
+    clearSharedHumanActivity();
+    releaseOfflineLock();
+    if (bound) {
+      postTabSyncMessage({
+        type: 'AUTH_LOGOUT',
+        userId: bound.userId,
+        sessionTag: bound.sessionTag,
+        at: Date.now()
+      });
+    }
   };
 
   const handleForceLogoutAfterReset = useCallback(() => {
+    const bound = getBoundSessionIdentity();
+    setBoundSessionIdentity(null);
     setAuthToken(null);
     setUser(null);
     setItems([]);
@@ -1494,6 +1846,17 @@ export default function App() {
     localStorage.removeItem('pos_token');
     localStorage.removeItem('pos_session_offline');
     localStorage.removeItem('pos_session_expires_at');
+    writeSessionMeta(null);
+    clearSharedHumanActivity();
+    releaseOfflineLock();
+    if (bound) {
+      postTabSyncMessage({
+        type: 'AUTH_LOGOUT',
+        userId: bound.userId,
+        sessionTag: bound.sessionTag,
+        at: Date.now()
+      });
+    }
     setSessionExpiredNotice(false);
   }, []);
 
@@ -1512,7 +1875,7 @@ export default function App() {
       return;
     }
     try {
-      if (window.location.pathname !== path) {
+      if (getCurrentBrowserUrl() !== path) {
         window.history.pushState({}, '', path);
       }
     } catch (_) {}
@@ -1522,7 +1885,7 @@ export default function App() {
       setEditingItem(null);
       setItemRoute({ mode: 'new' });
     } else if (path.startsWith('/items/') && path.length > '/items/'.length) {
-      const targetId = decodeURIComponent(path.slice('/items/'.length));
+      const targetId = decodeURIComponent(path.slice('/items/'.length).split(/[?#]/)[0]);
       const matched = it || items.find(p => p.id === targetId) || null;
       setEditingItem(matched);
       setItemRoute({ mode: 'edit', itemId: targetId });
@@ -1533,7 +1896,7 @@ export default function App() {
   }, [isOffline, items, featureFlags, executeNavigate]);
 
   const handleOpenProductModal = useCallback((it?: Item) => {
-    handleNavigateItemRoute(it?.id ? `/items/${encodeURIComponent(it.id)}` : '/items/new', it);
+    handleNavigateItemRoute(getHrefForItemRoute(it?.id ? 'edit' : 'new', it?.id), it);
   }, [handleNavigateItemRoute]);
 
   const handleBackToItemsList = useCallback(() => {
@@ -1546,7 +1909,7 @@ export default function App() {
     setEditingItem(null);
     setCurrentPage('items');
     try {
-      if (window.location.pathname !== '/items') {
+      if (getCurrentBrowserUrl() !== '/items') {
         window.history.pushState({}, '', '/items');
       }
     } catch (_) {}
@@ -1555,7 +1918,8 @@ export default function App() {
   useEffect(() => {
     const syncFromPath = () => {
       if (typeof window === 'undefined') return;
-      const resolved = resolvePathToTarget(window.location.pathname, user, featureFlags);
+      const fullUrl = getCurrentBrowserUrl();
+      const resolved = resolvePathToTarget(fullUrl, user, featureFlags);
       if (resolved.redirected) {
         try {
           window.history.replaceState({}, '', resolved.path);
@@ -1563,6 +1927,14 @@ export default function App() {
       }
       setCurrentPage(resolved.page);
       setCurrentTab(resolved.tab);
+      setDeliveryOrdersInitialSearch(readUrlSearchParam(resolved.path, 'search'));
+      setPurchasesInitialSupplierId(readUrlSearchParam(resolved.path, 'supplierId'));
+      setCustomersInitialCustomerId(readUrlSearchParam(resolved.path, 'customerId'));
+      setCashboxesInitialCashboxId(readUrlSearchParam(resolved.path, 'cashboxId'));
+      setPlatformsInitialPlatformId(readUrlSearchParam(resolved.path, 'platformId'));
+      setItemsInitialCategoryId(readUrlSearchParam(resolved.path, 'category'));
+      setBulkEditOperationTypeParam(readUrlSearchParam(resolved.path, 'operationType'));
+
       if (resolved.itemRoute?.mode === 'new') {
         setEditingItem(null);
         setItemRoute({ mode: 'new' });
@@ -1741,6 +2113,16 @@ export default function App() {
           return p;
         }));
       }
+
+      // بث تحديث المخزون لبقية تبويبات POS المفتوحة أونلاين دون المساس بسلالها
+      postTabSyncMessage({
+        type: 'POS_STOCK_UPDATED',
+        sourceTabId: tabId,
+        warehouseId: invoicePayload?.warehouseId,
+        itemIds: (res.invoice.lines || []).map((l: any) => l.itemId),
+        invoiceNumber: res.invoice.invoiceNumber,
+        at: Date.now()
+      });
 
       // Update reports
       if (!featureFlags.salesOnlyMode) {
@@ -2045,7 +2427,7 @@ export default function App() {
           setCurrentPage(normalized.page);
           setCurrentTab(normalized.tab);
           try {
-            if (window.location.pathname !== normalized.path) {
+            if (getCurrentBrowserUrl() !== normalized.path) {
               window.history.replaceState({}, '', normalized.path);
             }
           } catch (_) {}
@@ -2068,6 +2450,10 @@ export default function App() {
   // شاشة الزوار (/visitor): شاشة كاملة بدون الهيدر ولا القائمة الجانبية ولا الشريط السفلي
   if (currentPage === 'visitor' || isScreenOnlyUser) {
     if (!canViewVisitorScreen) {
+      const homeHref = getHrefForTarget(getDefaultHomeTarget(featureFlags).page, undefined, {
+        user,
+        flags: featureFlags
+      });
       return (
         <div
           dir="rtl"
@@ -2076,13 +2462,17 @@ export default function App() {
           <p className="text-base font-extrabold text-[#D9524F]">
             غير مصرح لك بفتح شاشة الزوار
           </p>
-          <button
-            type="button"
-            onClick={() => handleNavigate(getDefaultHomeTarget(featureFlags).page)}
-            className="min-h-[44px] px-5 rounded-lg bg-[#1668B2] text-white text-xs font-bold cursor-pointer"
+          <a
+            href={homeHref}
+            onClick={(e) => {
+              if (!isPlainLeftClick(e)) return;
+              e.preventDefault();
+              handleNavigate(getDefaultHomeTarget(featureFlags).page);
+            }}
+            className="min-h-[44px] px-5 rounded-lg bg-[#1668B2] text-white text-xs font-bold inline-flex items-center justify-center cursor-pointer"
           >
             الرجوع للرئيسية
-          </button>
+          </a>
         </div>
       );
     }
@@ -2372,12 +2762,17 @@ export default function App() {
                 user={user}
                 displaySettings={config.displaySettings}
                 currentTab={currentTab}
+                initialCategoryId={itemsInitialCategoryId}
                 onNavigateItemRoute={handleNavigateItemRoute}
                 onDeleteItem={handleDeleteItem}
                 onArchiveItem={handleArchiveItem}
                 onRefreshItems={loadData}
                 onQuickSell={handleQuickSell}
-                onOpenBulkImport={() => handleNavigate('bulk_edit_excel', 'add_items')}
+                onOpenBulkImport={() =>
+                  handleNavigate('bulk_edit_excel', 'add_items', {
+                    searchParams: { operationType: 'add_items' }
+                  })
+                }
               />
             )
           )}
@@ -2388,9 +2783,9 @@ export default function App() {
                 user={user}
                 onRefreshItems={loadData}
                 initialOperationType={
-                  currentTab === 'add_items'
+                  currentTab === 'add_items' || bulkEditOperationTypeParam === 'add_items'
                     ? 'add_items'
-                    : currentTab === 'add_categories'
+                    : currentTab === 'add_categories' || bulkEditOperationTypeParam === 'add_categories'
                     ? 'add_categories'
                     : undefined
                 }
@@ -2493,8 +2888,10 @@ export default function App() {
                     setCategories(res.categories);
                   }
                 }}
-                onNavigateToItemsWithCategory={(_categoryId) => {
-                  handleNavigate('items', 'ALL');
+                onNavigateToItemsWithCategory={(catId) => {
+                  handleNavigate('items', 'ALL', {
+                    searchParams: catId ? { category: catId } : undefined
+                  });
                 }}
               />
             ) : (
@@ -2575,6 +2972,7 @@ export default function App() {
               purchaseReturnLatestItemFirst={normalizeLatestItemFirst(config.displaySettings?.latestItemFirst).purchaseReturn}
               onRefreshItems={loadData}
               initialTab={currentTab as any}
+              initialSupplierId={purchasesInitialSupplierId}
               onNavigate={handleNavigate}
             />
           )}
@@ -2584,6 +2982,7 @@ export default function App() {
               user={user}
               userRole={role}
               initialTab={currentTab as any}
+              initialCustomerId={customersInitialCustomerId}
               onNavigate={handleNavigate}
             />
           )}
@@ -2594,6 +2993,7 @@ export default function App() {
               userRole={role}
               users={users}
               initialTab={currentTab as any}
+              initialCashboxId={cashboxesInitialCashboxId}
               onNavigate={handleNavigate}
             />
           )}
@@ -2608,6 +3008,7 @@ export default function App() {
               onSavePlatform={handleSavePlatform}
               onSaveCost={handleSaveCost}
               initialTab={currentTab as any}
+              initialPlatformId={platformsInitialPlatformId}
               onNavigate={handleNavigate}
             />
           )}
@@ -2630,7 +3031,9 @@ export default function App() {
               onUpdateInvoice={handleUpdateInvoice}
               onNavigateToDeliveryOrders={(searchTerm) => {
                 setDeliveryOrdersInitialSearch(searchTerm || '');
-                handleNavigate('delivery_orders');
+                handleNavigate('delivery_orders', undefined, {
+                  searchParams: searchTerm ? { search: searchTerm } : undefined
+                });
               }}
               onNavigateToDeliverySettlements={() => handleNavigate('delivery_settlements')}
             />
@@ -2739,6 +3142,7 @@ export default function App() {
               }}
               onSalesRulesUpdated={(nextRules) => {
                 persistCachedSalesRules(nextRules);
+                updateOfflineCachedSalesRules(nextRules).catch(() => {});
                 setConfig((prev) => ({
                   ...prev,
                   salesRules: nextRules
@@ -3022,9 +3426,14 @@ export default function App() {
               </button>
 
               {(user.role === 'designer' || Boolean(user.isOwner) || hasPermission(user, 'offline.manage')) && (
-                <button
-                  type="button"
-                  onClick={() => {
+                <a
+                  href={getHrefForTarget('sync', 'pending', { user, flags: featureFlags })}
+                  onClick={(e) => {
+                    if (!isPlainLeftClick(e)) {
+                      setLogoutGuardModal(null);
+                      return;
+                    }
+                    e.preventDefault();
                     setLogoutGuardModal(null);
                     handleNavigate('sync', 'pending');
                   }}
@@ -3032,7 +3441,7 @@ export default function App() {
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>شاشة المزامنة</span>
-                </button>
+                </a>
               )}
 
               <button

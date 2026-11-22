@@ -7,6 +7,8 @@ import {
   isGroupVisible,
   isSubItemVisible,
   isPageAllowedByFeatureModes,
+  getHrefForTarget,
+  isPlainLeftClick,
   type FeatureModeFlags
 } from '../config/navigation';
 import {
@@ -169,17 +171,20 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
             .map(tab => {
               const isActive = currentPage === tab.id;
               const TabIcon = tab.icon;
+              const tabHref = getHrefForTarget(tab.id, undefined, { user, flags: featureFlags });
 
               if (tab.isFab) {
                 return (
-                  <button
+                  <a
                     key={tab.id}
-                    type="button"
-                    onClick={() => {
+                    href={tabHref}
+                    onClick={(e) => {
+                      if (!isPlainLeftClick(e)) return;
+                      e.preventDefault();
                       setShowMoreMenu(false);
                       onNavigate(tab.id);
                     }}
-                    className="relative -top-3.5 flex items-center justify-center shrink-0 cursor-pointer group px-1"
+                    className="relative -top-3.5 flex items-center justify-center shrink-0 cursor-pointer group px-1 no-underline"
                     aria-label="نقطة البيع"
                     title="نقطة البيع"
                   >
@@ -195,21 +200,24 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                     >
                       <TabIcon className="w-6 h-6 text-white" strokeWidth={2.2} />
                     </div>
-                  </button>
+                  </a>
                 );
               }
 
               const palette = getNavGroupColors(tab.groupId);
 
               return (
-                <button
+                <a
                   key={tab.id}
-                  type="button"
-                  onClick={() => {
+                  href={tabHref}
+                  onClick={(e) => {
+                    if (!isPlainLeftClick(e)) return;
+                    e.preventDefault();
                     setShowMoreMenu(false);
                     onNavigate(tab.id);
                   }}
-                  className="flex flex-col items-center justify-center flex-1 min-h-[48px] px-1 transition-colors cursor-pointer"
+                  aria-current={isActive ? 'page' : undefined}
+                  className="flex flex-col items-center justify-center flex-1 min-h-[48px] px-1 transition-colors cursor-pointer no-underline"
                 >
                   <div className="relative flex items-center justify-center">
                     {isActive ? (
@@ -243,7 +251,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                   >
                     {tab.label}
                   </span>
-                </button>
+                </a>
               );
             })}
 
@@ -280,33 +288,42 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         <nav className="no-print md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#164E72] border-t border-sky-800/60 shadow-xl px-2 py-1.5 flex items-center justify-around h-16 safe-area-pb" dir="rtl">
           {mainTabs.filter(t => t.visible).map((tab) => {
             const isActive = currentPage === tab.id;
+            const tabHref = getHrefForTarget(tab.id, undefined, { user, flags: featureFlags });
 
             if (tab.isFab) {
               return (
-                <button
+                <a
                   key={tab.id}
-                  onClick={() => {
+                  href={tabHref}
+                  onClick={(e) => {
+                    if (!isPlainLeftClick(e)) return;
+                    e.preventDefault();
                     setShowMoreMenu(false);
                     onNavigate(tab.id);
                   }}
-                  className="relative -top-4 flex flex-col items-center justify-center cursor-pointer group"
+                  aria-current={isActive ? 'page' : undefined}
+                  className="relative -top-4 flex flex-col items-center justify-center cursor-pointer group no-underline"
                 >
                   <div className="w-14 h-14 rounded-full bg-[#1678C2] shadow-lg shadow-sky-900/50 flex items-center justify-center text-white active:scale-95 transition-transform border-2 border-white">
                     {tab.icon}
                   </div>
                   <span className="text-[11px] font-bold text-[#42BDE5] mt-0.5">بيع</span>
-                </button>
+                </a>
               );
             }
 
             return (
-              <button
+              <a
                 key={tab.id}
-                onClick={() => {
+                href={tabHref}
+                onClick={(e) => {
+                  if (!isPlainLeftClick(e)) return;
+                  e.preventDefault();
                   setShowMoreMenu(false);
                   onNavigate(tab.id);
                 }}
-                className={`flex flex-col items-center justify-center flex-1 min-h-[48px] px-1 transition-colors cursor-pointer ${
+                aria-current={isActive ? 'page' : undefined}
+                className={`flex flex-col items-center justify-center flex-1 min-h-[48px] px-1 transition-colors cursor-pointer no-underline ${
                   isActive ? 'text-[#42BDE5] font-bold' : 'text-sky-200/70 hover:text-white'
                 }`}
               >
@@ -319,7 +336,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                   )}
                 </div>
                 <span className="text-[10px] mt-1">{tab.label}</span>
-              </button>
+              </a>
             );
           })}
 
@@ -367,32 +384,45 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 
                 return (
                   <div key={group.id} className="rounded-2xl border border-slate-200/80 overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (isMulti) {
+                    {isMulti ? (
+                      <button
+                        type="button"
+                        onClick={() => {
                           setExpandedGroupId((prev) => (prev === group.id ? null : group.id));
-                        } else {
-                          setShowMoreMenu(false);
-                          onNavigate(subItems[0].page, subItems[0].tab);
-                        }
-                      }}
-                      className="w-full flex items-center justify-between gap-3 p-3.5 text-right hover:bg-slate-50 cursor-pointer min-h-[48px]"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="p-2 rounded-xl bg-slate-100 text-slate-700">
-                          <GroupIcon className="w-4 h-4" />
+                        }}
+                        className="w-full flex items-center justify-between gap-3 p-3.5 text-right hover:bg-slate-50 cursor-pointer min-h-[48px]"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="p-2 rounded-xl bg-slate-100 text-slate-700">
+                            <GroupIcon className="w-4 h-4" />
+                          </div>
+                          <span className="text-sm font-bold truncate">{group.labelAr}</span>
                         </div>
-                        <span className="text-sm font-bold truncate">{group.labelAr}</span>
-                      </div>
-                      {isMulti && (
                         <ChevronDown
                           className={`w-4 h-4 text-slate-400 transition-transform ${
                             isExpanded ? 'rotate-180' : ''
                           }`}
                         />
-                      )}
-                    </button>
+                      </button>
+                    ) : (
+                      <a
+                        href={getHrefForTarget(subItems[0].page, subItems[0].tab, { user, flags: featureFlags })}
+                        onClick={(e) => {
+                          if (!isPlainLeftClick(e)) return;
+                          e.preventDefault();
+                          setShowMoreMenu(false);
+                          onNavigate(subItems[0].page, subItems[0].tab);
+                        }}
+                        className="w-full flex items-center justify-between gap-3 p-3.5 text-right hover:bg-slate-50 cursor-pointer min-h-[48px] no-underline text-inherit"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="p-2 rounded-xl bg-slate-100 text-slate-700">
+                            <GroupIcon className="w-4 h-4" />
+                          </div>
+                          <span className="text-sm font-bold truncate">{group.labelAr}</span>
+                        </div>
+                      </a>
+                    )}
 
                     {isMulti && isExpanded && (
                       <div className="border-t border-slate-100 bg-slate-50/70 p-2 space-y-1">
@@ -403,14 +433,23 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                             (!sub.tab || sub.tab === currentTab || (sub.tab === 'ALL' && !currentTab));
 
                           return (
-                            <button
+                            <a
                               key={sub.id}
-                              type="button"
-                              onClick={() => {
+                              href={getHrefForTarget(sub.page, sub.tab, { user, flags: featureFlags })}
+                              target={sub.page === 'visitor' ? '_blank' : undefined}
+                              rel={sub.page === 'visitor' ? 'noopener noreferrer' : undefined}
+                              onClick={(e) => {
+                                if (sub.page === 'visitor') {
+                                  setShowMoreMenu(false);
+                                  return;
+                                }
+                                if (!isPlainLeftClick(e)) return;
+                                e.preventDefault();
                                 setShowMoreMenu(false);
                                 onNavigate(sub.page, sub.tab);
                               }}
-                              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-right min-h-[44px] cursor-pointer ${
+                              aria-current={isActive ? 'page' : undefined}
+                              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-right min-h-[44px] cursor-pointer no-underline ${
                                 isActive
                                   ? 'bg-cyan-50 text-cyan-900 font-bold'
                                   : 'text-slate-700 hover:bg-white'
@@ -418,7 +457,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                             >
                               {SubIcon && <SubIcon className="w-3.5 h-3.5 shrink-0" />}
                               <span className="truncate">{sub.labelAr}</span>
-                            </button>
+                            </a>
                           );
                         })}
                       </div>

@@ -174,6 +174,9 @@ export interface PosInvoicePanelProps {
   // Optional Formula Verifier
   onOpenFormulaModal?: () => void;
   isOffline?: boolean;
+  offlineWriteBlocked?: boolean;
+  offlineLockMessage?: string | null;
+  onRetryOfflineLock?: () => void;
 
   // Sales rules & validation UI state
   platformSelectionMode?: 'first' | 'fixed' | 'manual';
@@ -331,6 +334,9 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
   onRetryCheckout,
   onOpenFormulaModal,
   isOffline = false,
+  offlineWriteBlocked = false,
+  offlineLockMessage = null,
+  onRetryOfflineLock,
 
   platformSelectionMode = 'first',
   customerSelectionMode = 'none',
@@ -615,7 +621,11 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
       : (selectedPlatform?.discountPercentage || 0);
 
   const isCheckoutDisabled =
-    isSubmitting || cart.length === 0 || hasStockExceeded || isCheckoutBlockedByMode;
+    isSubmitting ||
+    cart.length === 0 ||
+    hasStockExceeded ||
+    isCheckoutBlockedByMode ||
+    Boolean(isOffline && offlineWriteBlocked);
   const isCancelDisabled = isSubmitting || cart.length === 0;
 
   // تسجيل اختصارات نقطة البيع مع المدير المركزي
@@ -827,6 +837,34 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
                 </button>
               </div>
             )}
+        </div>
+      )}
+
+      {/* تنبيه قفل الوضع الأوفلاين على تبويب واحد */}
+      {isOffline && offlineWriteBlocked && (
+        <div
+          role="alert"
+          data-testid="pos-offline-lock-banner"
+          className="p-3 rounded-xl border border-rose-300 bg-rose-50 text-rose-800 text-xs font-bold flex flex-col gap-2"
+        >
+          <div className="flex items-start gap-2">
+            <Lock className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            <span className="leading-relaxed">
+              {offlineLockMessage ||
+                'الوضع الأوفلاين نشط في تبويب آخر على هذا المتصفح. البيع أوفلاين متاح في تبويب واحد فقط.'}
+            </span>
+          </div>
+          {onRetryOfflineLock && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={onRetryOfflineLock}
+                className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#1678C2] hover:bg-[#1366a6] text-white text-xs font-extrabold cursor-pointer transition"
+              >
+                إعادة فحص القفل
+              </button>
+            </div>
+          )}
         </div>
       )}
 

@@ -24,6 +24,7 @@ import {
 import { api } from '../api/client';
 import { hasPermission } from '../utils/permissions';
 import { calculateInvoice } from '../shared/invoiceCalc';
+import { assertOfflineWriteOwnership } from './offlineLock';
 
 export const OFFLINE_PBKDF2_ITERATIONS = 200000;
 
@@ -1381,6 +1382,31 @@ export async function saveOfflineSnapshot(params: {
   return nowIso;
 }
 
+export async function updateOfflineCachedSalesRules(nextRules: SalesRules): Promise<void> {
+  try {
+    const db = await openOfflineDb();
+    const nowIso = new Date().toISOString();
+    const readTx = db.transaction([OFFLINE_STORES.CATALOG], 'readonly');
+    const existingRec = await reqToPromise<CatalogRecord<CatalogSettingsRecord> | undefined>(
+      readTx.objectStore(OFFLINE_STORES.CATALOG).get('settings')
+    );
+    const writeTx = db.transaction([OFFLINE_STORES.CATALOG], 'readwrite');
+    writeTx.objectStore(OFFLINE_STORES.CATALOG).put({
+      key: 'settings',
+      data: {
+        ...(existingRec?.data || {
+          taxSettings: { taxInclusive: true, platformCommissionOn: 'before_tax' }
+        }),
+        salesRules: nextRules
+      },
+      updatedAt: nowIso
+    } satisfies CatalogRecord<CatalogSettingsRecord>);
+    await txDone(writeTx);
+  } catch {
+    // تجاهل أخطاء تحديث الكاش المحلي في البيئات التي لا تدعم IndexedDB
+  }
+}
+
 /**
  * قراءة المخازن المحلية من IndexedDB عند فتح التطبيق أوفلاين
  */
@@ -1597,6 +1623,8 @@ export async function createOfflineInvoiceInDb(params: {
     salesRules
   } = params;
 
+  await assertOfflineWriteOwnership();
+
   const paymentType: 'نقدي' | 'آجل' | 'جزئي' = invoicePayload.paymentType || 'نقدي';
   const creditPartyType: 'customer' | 'platform' =
     invoicePayload.creditPartyType === 'platform' ? 'platform' : 'customer';
@@ -1611,10 +1639,10 @@ export async function createOfflineInvoiceInDb(params: {
   }
   const requestedPlatformIdPre = String(invoicePayload.platformId || '').trim();
   const requestedPlatformNamePre = String(invoicePayload.platform || invoicePayload.platformName || 'البيع المباشر').trim();
-  const isRequestedPlatformSale =
-    (Boolean(requestedPlatformIdPre && requestedPlatformIdPre !== 'direct') ||
-      (requestedPlatformNamePre !== '' && requestedPlatformNamePre !== 'البيع المباشر')) ||
-    creditPartyType === 'platform';
+  const isDirectTargetPre =
+    (!requestedPlatformIdPre || requestedPlatformIdPre === 'direct') &&
+    (!requestedPlatformNamePre || requestedPlatformNamePre === 'البيع المباشر');
+  const isRequestedPlatformSale = !isDirectTargetPre;
 
   const preEffectivePlatformsEnabled =
     platformsEnabled !== false &&
@@ -1740,7 +1768,7 @@ export async function createOfflineInvoiceInDb(params: {
     ? matchedLocalPlatform.name === 'البيع المباشر'
     : (!platformIdInput || platformIdInput === 'direct') &&
       (!platformName || platformName === 'البيع المباشر');
-  const isPlatformSale = !isDirectTarget || creditPartyType === 'platform';
+  const isPlatformSale = !isDirectTarget;
 
   if (!effectiveAllowPlatformSale && !effectiveAllowDirectSale) {
     throw new Error('البيع على منصة والبيع المباشر للعميل معطلان حاليًا من إعدادات البيع؛ فعّل وضع بيع واحد على الأقل أولًا');
@@ -2095,6 +2123,8 @@ export async function createOfflineCreditCollectionInDb(params: {
     fallbackCashboxes = [],
     fallbackPendingInvoices = []
   } = params;
+
+  await assertOfflineWriteOwnership();
 
   const { partyType, partyId, cashboxId } = payload;
   if (partyType !== 'customer' && partyType !== 'platform') {
@@ -2746,6 +2776,8 @@ export async function syncOutboxOperations(options?: {
   disableAutoRetrySchedule?: boolean;
   onOperationSynced?: (item: SyncedOutboxInvoiceItem) => void;
 }): Promise<OutboxSyncResult> {
+  await assertOfflineWriteOwnership();
+
   if (activeOutboxSyncPromise) {
     return activeOutboxSyncPromise;
   }

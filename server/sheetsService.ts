@@ -12112,7 +12112,7 @@ export async function createInvoice(
     : (!rawPlatformId || rawPlatformId === 'direct') &&
       (!rawPlatformName || rawPlatformName === DIRECT_SALE_PLATFORM_NAME);
 
-  const isPlatformInvoice = !isDirectByTarget || invoicePayload.creditPartyType === 'platform';
+  const isPlatformInvoice = !isDirectByTarget;
 
   // التحقق من تفعيل وضع البيع المطلوب (بيع على منصة / بيع مباشر) قبل أي خصم مخزون أو ترقيم أو حركة خزنة
   // ويسري أيضًا عند مزامنة الفواتير الأوفلاين على ضوء الإعدادات الحالية للخادم

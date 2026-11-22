@@ -36,6 +36,7 @@ import {
   INPUT_WIDTH_CLASSES,
   FORM_CONTROL_BASE_CLASS,
 } from '../components/ui';
+import { getHrefForTarget, isPlainLeftClick } from '../config/navigation';
 
 interface WarehouseDispatchOrdersPageProps {
   user: UserAccount;
@@ -227,14 +228,18 @@ export const WarehouseDispatchOrdersPage: React.FC<WarehouseDispatchOrdersPagePr
           </button>
 
           {canCreateTransfer && onNavigateToNewTransfer && (
-            <button
-              type="button"
-              onClick={onNavigateToNewTransfer}
+            <a
+              href={getHrefForTarget('warehouse_transfers')}
+              onClick={(e) => {
+                if (!isPlainLeftClick(e)) return;
+                e.preventDefault();
+                onNavigateToNewTransfer();
+              }}
               className="min-h-[44px] inline-flex items-center gap-1.5 px-4 rounded-lg bg-[#1668B2] hover:bg-[#125491] text-white text-xs font-bold transition cursor-pointer whitespace-nowrap"
             >
               <ArrowLeftRight className="w-4 h-4" />
               <span>تحويل جديد بين المخازن</span>
-            </button>
+            </a>
           )}
         </>
       }
@@ -452,14 +457,18 @@ export const WarehouseDispatchOrdersPage: React.FC<WarehouseDispatchOrdersPagePr
           <ClipboardList className="w-9 h-9 mx-auto opacity-50" />
           <p className="text-sm font-bold text-[var(--text-primary)]">لا توجد أوامر صرف مطابقة</p>
           {canCreateTransfer && onNavigateToNewTransfer && (
-            <button
-              type="button"
-              onClick={onNavigateToNewTransfer}
+            <a
+              href={getHrefForTarget('warehouse_transfers')}
+              onClick={(e) => {
+                if (!isPlainLeftClick(e)) return;
+                e.preventDefault();
+                onNavigateToNewTransfer();
+              }}
               className="min-h-[44px] inline-flex items-center gap-1.5 px-4 rounded-lg bg-[#1668B2] text-white text-xs font-bold cursor-pointer"
             >
               <ArrowLeftRight className="w-4 h-4" />
               <span>إجراء تحويل جديد</span>
-            </button>
+            </a>
           )}
         </div>
       ) : (

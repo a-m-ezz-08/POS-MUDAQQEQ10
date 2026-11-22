@@ -42,6 +42,7 @@ import {
   FORM_CONTROL_BASE_CLASS,
 } from '../components/ui';
 import { ShortcutBadge } from '../context/KeyboardShortcutsContext';
+import { getHrefForTarget, isPlainLeftClick } from '../config/navigation';
 
 const FINAL_DELIVERY_STATUSES: readonly DeliveryOrderStatus[] = ['اتسلم', 'رجع المحل', 'اتلغى'];
 
@@ -1209,9 +1210,13 @@ export const InvoicesPage: React.FC<InvoicesPageProps> = ({
 
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   {canViewDelivery && onNavigateToDeliveryOrders ? (
-                    <button
-                      type="button"
-                      onClick={() => {
+                    <a
+                      href={getHrefForTarget('delivery_orders', undefined, {
+                        searchParams: { search: selectedDeliveryOrder?.number || selectedInvoice.invoiceNumber }
+                      })}
+                      onClick={(e) => {
+                        if (!isPlainLeftClick(e)) return;
+                        e.preventDefault();
                         const targetSearch = selectedDeliveryOrder?.number || selectedInvoice.invoiceNumber;
                         setSelectedInvoice(null);
                         onNavigateToDeliveryOrders(targetSearch);
@@ -1221,7 +1226,7 @@ export const InvoicesPage: React.FC<InvoicesPageProps> = ({
                       <Truck className="w-4 h-4" />
                       <span>فتح الطلب في شاشة إدارة التوصيل</span>
                       <ArrowLeft className="w-3.5 h-3.5" />
-                    </button>
+                    </a>
                   ) : (
                     <span className="text-[var(--text-secondary)]">
                       لإدارة الطلب أو تغيير حالته أو إلغائه، يرجى المتابعة من شاشة «إدارة التوصيل» عبر مستخدم يملك الصلاحية.
@@ -1233,9 +1238,11 @@ export const InvoicesPage: React.FC<InvoicesPageProps> = ({
                     !selectedDeliveryOrder.settlementId &&
                     canSettleDelivery &&
                     onNavigateToDeliverySettlements && (
-                      <button
-                        type="button"
-                        onClick={() => {
+                      <a
+                        href={getHrefForTarget('delivery_settlements')}
+                        onClick={(e) => {
+                          if (!isPlainLeftClick(e)) return;
+                          e.preventDefault();
                           setSelectedInvoice(null);
                           onNavigateToDeliverySettlements();
                         }}
@@ -1243,7 +1250,7 @@ export const InvoicesPage: React.FC<InvoicesPageProps> = ({
                       >
                         <span>الانتقال إلى تسويات التوصيل</span>
                         <ArrowLeft className="w-3.5 h-3.5" />
-                      </button>
+                      </a>
                     )}
                 </div>
               </div>

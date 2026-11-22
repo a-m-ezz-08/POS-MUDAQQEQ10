@@ -44,6 +44,7 @@ import {
   FORM_CONTROL_BASE_CLASS,
 } from '../components/ui';
 import { ShortcutBadge } from '../context/KeyboardShortcutsContext';
+import { getHrefForTarget, isPlainLeftClick } from '../config/navigation';
 
 interface PurchasesPageProps {
   items: Item[];
@@ -54,7 +55,12 @@ interface PurchasesPageProps {
   purchaseReturnLatestItemFirst?: boolean;
   onRefreshItems?: () => void;
   initialTab?: TabType;
-  onNavigate?: (page: PageType, tab?: string) => void;
+  initialSupplierId?: string;
+  onNavigate?: (
+    page: PageType,
+    tab?: string,
+    options?: { searchParams?: Record<string, string | undefined>; replace?: boolean }
+  ) => void;
 }
 
 type TabType =
@@ -77,6 +83,7 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
   purchaseReturnLatestItemFirst = false,
   onRefreshItems,
   initialTab,
+  initialSupplierId,
   onNavigate,
 }) => {
   const isDesigner = user?.role === 'designer' || Boolean(user?.isOwner);
@@ -97,7 +104,13 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([]);
-  const [selectedSupplierForLedger, setSelectedSupplierForLedger] = useState<string>('');
+  const [selectedSupplierForLedger, setSelectedSupplierForLedger] = useState<string>(() => initialSupplierId || '');
+
+  useEffect(() => {
+    if (initialSupplierId) {
+      setSelectedSupplierForLedger(initialSupplierId);
+    }
+  }, [initialSupplierId]);
   const [supplierLedger, setSupplierLedger] = useState<SupplierLedgerEntry[]>([]);
   const [ledgerOpeningBalanceForPeriod, setLedgerOpeningBalanceForPeriod] = useState<number>(0);
   const [ledgerClosingBalanceForPeriod, setLedgerClosingBalanceForPeriod] = useState<number>(0);
@@ -171,7 +184,7 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
       if (retRes.success) setPurchaseReturns(retRes.returns);
       if (cbRes.success) setCashboxes(cbRes.cashboxes);
 
-      if (supRes.suppliers.length > 0 && !selectedSupplierForLedger) {
+      if (supRes.suppliers.length > 0 && !selectedSupplierForLedger && !initialSupplierId) {
         setSelectedSupplierForLedger(supRes.suppliers[0].id);
       }
     } catch (err: any) {
@@ -819,17 +832,26 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
                       <td className={COMPACT_TABLE_NUM_CLASS}>{s.status}</td>
                       <td className={`no-print ${COMPACT_TABLE_NUM_CLASS}`}>
                         <div className="inline-flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
+                          <a
+                            href={getHrefForTarget('purchases', 'STATEMENT', {
+                              searchParams: { supplierId: s.id }
+                            })}
+                            onClick={(e) => {
+                              if (!isPlainLeftClick(e)) return;
+                              e.preventDefault();
                               setSelectedSupplierForLedger(s.id);
-                              if (onNavigate) onNavigate('purchases', 'STATEMENT');
-                              else setActiveTab('STATEMENT');
+                              if (onNavigate) {
+                                onNavigate('purchases', 'STATEMENT', {
+                                  searchParams: { supplierId: s.id }
+                                });
+                              } else {
+                                setActiveTab('STATEMENT');
+                              }
                             }}
-                            className="min-h-[44px] px-2.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-link text-xs font-bold cursor-pointer"
+                            className="min-h-[44px] inline-flex items-center px-2.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-link text-xs font-bold cursor-pointer"
                           >
                             كشف الحساب
-                          </button>
+                          </a>
                           <button
                             type="button"
                             onClick={() => {
@@ -952,17 +974,26 @@ export const PurchasesPage: React.FC<PurchasesPageProps> = ({
                     </td>
                     <td className={COMPACT_TABLE_NUM_CLASS}>{s.status}</td>
                     <td className={`no-print ${COMPACT_TABLE_NUM_CLASS}`}>
-                      <button
-                        type="button"
-                        onClick={() => {
+                      <a
+                        href={getHrefForTarget('purchases', 'STATEMENT', {
+                          searchParams: { supplierId: s.id }
+                        })}
+                        onClick={(e) => {
+                          if (!isPlainLeftClick(e)) return;
+                          e.preventDefault();
                           setSelectedSupplierForLedger(s.id);
-                          if (onNavigate) onNavigate('purchases', 'STATEMENT');
-                          else setActiveTab('STATEMENT');
+                          if (onNavigate) {
+                            onNavigate('purchases', 'STATEMENT', {
+                              searchParams: { supplierId: s.id }
+                            });
+                          } else {
+                            setActiveTab('STATEMENT');
+                          }
                         }}
-                        className="min-h-[44px] px-2.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-link text-xs font-bold cursor-pointer"
+                        className="min-h-[44px] inline-flex items-center px-2.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-link text-xs font-bold cursor-pointer"
                       >
                         عرض الحساب
-                      </button>
+                      </a>
                     </td>
                   </tr>
                 ))

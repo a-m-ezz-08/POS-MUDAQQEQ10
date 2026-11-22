@@ -10,7 +10,7 @@ import {
   AppTheme
 } from '../types';
 import { hasPermission } from '../utils/permissions';
-import { getNavGroupColors } from '../config/navigation';
+import { getNavGroupColors, getHrefForTarget, getHrefForItemRoute, isPlainLeftClick } from '../config/navigation';
 import {
   formatMoney,
   getCairoToday,
@@ -433,7 +433,11 @@ interface DashboardAuroraProps {
   cashboxError: string | null;
   totalsByCurrency: [string, number][];
   onRefreshCashboxes: () => void;
-  onNavigate: (page: PageType, tab?: string) => void;
+  onNavigate: (
+    page: PageType,
+    tab?: string,
+    options?: { searchParams?: Record<string, string | undefined> }
+  ) => void;
   onOpenProductModal: (item?: Item) => void;
   onOpenInvoiceDetails: (inv: Invoice) => void;
   platformsEnabled?: boolean;
@@ -619,25 +623,33 @@ export const DashboardAurora: React.FC<DashboardAuroraProps> = ({
 
               {/* زرا الإجراءات بنفس الوجهات والصلاحيات الحالية */}
               <div className={`no-print ${metrics.canAddItem ? 'grid grid-cols-2 md:flex md:flex-wrap items-center gap-2.5 pt-1' : 'flex flex-wrap items-center gap-2.5 pt-1'}`}>
-                <button
-                  type="button"
-                  onClick={() => onNavigate('pos')}
+                <a
+                  href={getHrefForTarget('pos')}
+                  onClick={(e) => {
+                    if (!isPlainLeftClick(e)) return;
+                    e.preventDefault();
+                    onNavigate('pos');
+                  }}
                   className="inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3 md:px-5 py-2.5 rounded-2xl bg-white hover:bg-white/95 font-extrabold text-[13px] md:text-sm shadow-md transition-all active:scale-95 cursor-pointer min-h-[44px] whitespace-nowrap shrink-0"
                   style={{ color: 'var(--primary-on-white, var(--primary))' }}
                 >
                   <ShoppingCart className="w-[17px] h-[17px] sm:w-[18px] sm:h-[18px] shrink-0" />
                   <span>فاتورة بيع جديدة</span>
-                </button>
+                </a>
 
                 {metrics.canAddItem && (
-                  <button
-                    type="button"
-                    onClick={() => onOpenProductModal()}
+                  <a
+                    href={getHrefForItemRoute('new')}
+                    onClick={(e) => {
+                      if (!isPlainLeftClick(e)) return;
+                      e.preventDefault();
+                      onOpenProductModal();
+                    }}
                     className="inline-flex items-center justify-center gap-1.5 sm:gap-2 px-3 md:px-4 py-2.5 rounded-2xl bg-white/15 hover:bg-white/25 text-white font-bold text-[13px] md:text-sm border border-white/60 transition cursor-pointer min-h-[44px] whitespace-nowrap shrink-0"
                   >
                     <PlusCircle className="w-[17px] h-[17px] sm:w-[18px] sm:h-[18px] shrink-0" />
                     <span>إضافة صنف</span>
-                  </button>
+                  </a>
                 )}
               </div>
             </div>
@@ -922,10 +934,18 @@ export const DashboardAurora: React.FC<DashboardAuroraProps> = ({
 
                   if (canViewCashboxPage) {
                     return (
-                      <button
+                      <a
                         key={cb.id}
-                        type="button"
-                        onClick={() => onNavigate('cashboxes', 'TRANSACTIONS')}
+                        href={getHrefForTarget('cashboxes', 'TRANSACTIONS', {
+                          searchParams: { cashboxId: cb.id }
+                        })}
+                        onClick={(e) => {
+                          if (!isPlainLeftClick(e)) return;
+                          e.preventDefault();
+                          onNavigate('cashboxes', 'TRANSACTIONS', {
+                            searchParams: { cashboxId: cb.id }
+                          });
+                        }}
                         className={cardClasses}
                         style={{
                           background: gradient,
@@ -934,7 +954,7 @@ export const DashboardAurora: React.FC<DashboardAuroraProps> = ({
                         title={`عرض حركات ${cb.name}`}
                       >
                         {cardInner}
-                      </button>
+                      </a>
                     );
                   }
 
@@ -1025,15 +1045,19 @@ export const DashboardAurora: React.FC<DashboardAuroraProps> = ({
           <div className="flex items-center justify-between gap-2 mb-4">
             <h2 className="text-base font-extrabold text-[var(--text-primary)]">آخر الفواتير</h2>
             {metrics.canViewInvoices && (
-              <button
-                type="button"
-                onClick={() => onNavigate('invoices')}
+              <a
+                href={getHrefForTarget('invoices')}
+                onClick={(e) => {
+                  if (!isPlainLeftClick(e)) return;
+                  e.preventDefault();
+                  onNavigate('invoices');
+                }}
                 className="inline-flex items-center gap-1 text-xs font-extrabold cursor-pointer hover:underline min-h-[44px] px-2 -my-2 whitespace-nowrap shrink-0"
                 style={{ color: 'var(--primary-on-white, var(--primary))' }}
               >
                 <span>عرض السجل</span>
                 <ChevronLeft className="w-3.5 h-3.5 shrink-0" />
-              </button>
+              </a>
             )}
           </div>
 
@@ -1124,17 +1148,21 @@ export const DashboardAurora: React.FC<DashboardAuroraProps> = ({
                 {quickActions.map(action => {
                   const IconComponent = QUICK_ACTION_ICONS[action.id];
                   return (
-                    <button
+                    <a
                       key={action.id}
-                      type="button"
-                      onClick={() => onNavigate(action.page, action.tab)}
+                      href={getHrefForTarget(action.page, action.tab)}
+                      onClick={(e) => {
+                        if (!isPlainLeftClick(e)) return;
+                        e.preventDefault();
+                        onNavigate(action.page, action.tab);
+                      }}
                       className="flex items-center gap-3 p-3 rounded-2xl border border-[var(--border-color)] bg-slate-50/75 hover:bg-slate-100/90 transition text-start cursor-pointer min-h-[56px] min-w-0"
                     >
                       <SectionSquareIcon groupId={action.groupId} icon={IconComponent} />
                       <span className="text-xs sm:text-[13px] font-extrabold text-[var(--text-primary)] leading-snug truncate">
                         {action.label}
                       </span>
-                    </button>
+                    </a>
                   );
                 })}
               </div>
@@ -1159,13 +1187,17 @@ export const DashboardAurora: React.FC<DashboardAuroraProps> = ({
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => onNavigate('items', 'LOW_STOCK')}
-                className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition cursor-pointer shrink-0 min-h-[44px] whitespace-nowrap"
+              <a
+                href={getHrefForTarget('items', 'LOW_STOCK')}
+                onClick={(e) => {
+                  if (!isPlainLeftClick(e)) return;
+                  e.preventDefault();
+                  onNavigate('items', 'LOW_STOCK');
+                }}
+                className="inline-flex items-center px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition cursor-pointer shrink-0 min-h-[44px] whitespace-nowrap"
               >
                 معاينة الأصناف
-              </button>
+              </a>
             </div>
           )}
         </div>

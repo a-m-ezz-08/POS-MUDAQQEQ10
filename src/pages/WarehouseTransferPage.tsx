@@ -36,6 +36,7 @@ import {
   INPUT_WIDTH_CLASSES,
   FORM_CONTROL_BASE_CLASS,
 } from '../components/ui';
+import { getHrefForTarget, isPlainLeftClick } from '../config/navigation';
 
 interface WarehouseTransferPageProps {
   user: UserAccount;
@@ -606,14 +607,18 @@ export const WarehouseTransferPage: React.FC<WarehouseTransferPageProps> = ({
       }`}
       actions={
         onNavigateToDispatchOrders ? (
-          <button
-            type="button"
-            onClick={onNavigateToDispatchOrders}
+          <a
+            href={getHrefForTarget('warehouse_dispatch_orders')}
+            onClick={(e) => {
+              if (!isPlainLeftClick(e)) return;
+              e.preventDefault();
+              onNavigateToDispatchOrders();
+            }}
             className="min-h-[44px] inline-flex items-center gap-1.5 px-4 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] text-[var(--text-primary)] text-xs font-bold transition whitespace-nowrap cursor-pointer"
           >
             <ClipboardList className="w-4 h-4" />
             <span>عرض أوامر الصرف</span>
-          </button>
+          </a>
         ) : undefined
       }
     >
@@ -660,13 +665,17 @@ export const WarehouseTransferPage: React.FC<WarehouseTransferPageProps> = ({
                   تحويل جديد
                 </button>
                 {onNavigateToDispatchOrders && (
-                  <button
-                    type="button"
-                    onClick={onNavigateToDispatchOrders}
-                    className="min-h-[44px] px-4 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] text-[var(--text-primary)] text-xs font-bold transition whitespace-nowrap cursor-pointer"
+                  <a
+                    href={getHrefForTarget('warehouse_dispatch_orders')}
+                    onClick={(e) => {
+                      if (!isPlainLeftClick(e)) return;
+                      e.preventDefault();
+                      onNavigateToDispatchOrders();
+                    }}
+                    className="min-h-[44px] inline-flex items-center px-4 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] text-[var(--text-primary)] text-xs font-bold transition whitespace-nowrap cursor-pointer"
                   >
                     عرض أوامر الصرف
-                  </button>
+                  </a>
                 )}
               </div>
             </div>

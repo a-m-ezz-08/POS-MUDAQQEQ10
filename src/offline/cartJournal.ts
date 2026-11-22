@@ -60,10 +60,13 @@ export interface CartJournalClientOptions {
   retryMs?: number;
   /** false في الاختبارات: بدون مؤقتات ولا مستمعي أحداث المتصفح */
   autoTimers?: boolean;
+  /** معرّف التبويب الحالي لعزل cartId ومنع التداخل بين التبويبات */
+  ownerTabId?: string;
 }
 
 interface CartSnapshot {
   cartId: string;
+  ownerTabId?: string;
   items: Record<string, number>;
   lastAt: number;
   heartbeat: number;
@@ -75,10 +78,26 @@ const KEY_SEQ = 'mq_cj_seq';
 const KEY_PENDING = 'mq_cj_pending';
 const KEY_CARTS = 'mq_cj_carts';
 const KEY_CART_PREFIX = 'mq_cj_cart_';
+const CART_JOURNAL_FLUSH_LOCK = 'mudaqqeq_cart_journal_flush_lock_v1';
 const MAX_PENDING = 20000;
 const BATCH_SIZE = 200;
 const HEARTBEAT_MS = 5000;
 const ORPHAN_AFTER_MS = 30000;
+
+let inProcessFlushChain: Promise<unknown> = Promise.resolve();
+
+async function runWithCrossTabFlushLock<T>(fn: () => Promise<T>): Promise<T> {
+  if (
+    typeof navigator !== 'undefined' &&
+    navigator.locks &&
+    typeof navigator.locks.request === 'function'
+  ) {
+    return navigator.locks.request(CART_JOURNAL_FLUSH_LOCK, { mode: 'exclusive' }, fn);
+  }
+  const next = inProcessFlushChain.then(fn, fn);
+  inProcessFlushChain = next.catch(() => undefined);
+  return next;
+}
 
 function defaultRandomId(): string {
   const cryptoObj: any = (globalThis as any).crypto;
@@ -100,6 +119,7 @@ export class CartJournalClient {
   private flushDelayMs: number;
   private retryMs: number;
   private autoTimers: boolean;
+  private ownerTabId?: string;
   private deviceId: string;
   private cartId: string;
   private items = new Map<string, { qty: number; name: string; barcode: string; unitPrice: number }>();
@@ -125,6 +145,7 @@ export class CartJournalClient {
     this.flushDelayMs = options.flushDelayMs ?? 1000;
     this.retryMs = options.retryMs ?? 15000;
     this.autoTimers = options.autoTimers ?? true;
+    this.ownerTabId = options.ownerTabId ? String(options.ownerTabId).trim() : undefined;
 
     let deviceId = this.read<string>(KEY_DEVICE, '');
     if (!deviceId) {
@@ -163,18 +184,67 @@ export class CartJournalClient {
   }
 
   private newCartId(): string {
-    return `c-${this.randomId()}`;
+    const cleanTab = (this.ownerTabId || '').replace(/[^a-zA-Z0-9]/g, '').slice(-6);
+    return cleanTab ? `c-${cleanTab}-${this.randomId().slice(0, 18)}` : `c-${this.randomId()}`;
+  }
+
+  /**
+   * تحديث معرّف التبويب المالك (عند اكتشاف Duplicate Tab) مع تدوير cartId
+   * حتى لا يتشارك تبويبان منسوخان نفس سلة الفاتورة.
+   */
+  setOwnerTabId(nextTabId: string) {
+    const cleanNext = String(nextTabId || '').trim();
+    if (!cleanNext || cleanNext === this.ownerTabId) return;
+    this.ownerTabId = cleanNext;
+    const prevCartId = this.cartId;
+    const prevItems = new Map(this.items);
+    this.cartId = this.newCartId();
+    this.metaSent = false;
+    this.cartClosed = false;
+    // لا نحذف snapshot القديمة لأنها قد تخص التبويب الأصلي المنسوخ منه
+    const index = this.read<string[]>(KEY_CARTS, []);
+    if (prevCartId && index.includes(prevCartId)) {
+      const snap = this.read<CartSnapshot | null>(KEY_CART_PREFIX + prevCartId, null);
+      if (snap && snap.ownerTabId === this.ownerTabId) {
+        this.dropSnapshot(prevCartId);
+      }
+    }
+    this.items = prevItems;
+    const hasItems = Array.from(this.items.values()).some((entry) => entry.qty > 0);
+    if (hasItems) {
+      this.saveSnapshot();
+      for (const [itemId, entry] of this.items) {
+        if (entry.qty > 0) {
+          this.push({
+            cartId: this.cartId,
+            type: 'qty',
+            itemId,
+            itemName: entry.name,
+            barcode: entry.barcode,
+            unitPrice: entry.unitPrice,
+            qty: entry.qty,
+            warehouseId: this.meta.warehouseId,
+            warehouseName: this.meta.warehouseName,
+            platform: this.meta.platform
+          });
+        }
+      }
+      this.metaSent = true;
+    }
   }
 
   private push(event: Omit<JournalEvent, 'seq' | 'at'> & { at?: number }) {
-    const seq = (Number(this.read<number>(KEY_SEQ, 0)) || 0) + 1;
+    const currentSeq = Number(this.read<number>(KEY_SEQ, 0)) || 0;
+    const pendingBefore = this.read<JournalEvent[]>(KEY_PENDING, []);
+    const maxPendingSeq = pendingBefore.reduce((m, e) => (e && typeof e.seq === 'number' && e.seq > m ? e.seq : m), 0);
+    const seq = Math.max(currentSeq, maxPendingSeq) + 1;
     this.write(KEY_SEQ, seq);
     const { at, ...rest } = event;
     const full: JournalEvent = { ...rest, seq, at: new Date(at ?? this.now()).toISOString() };
-    const pending = this.read<JournalEvent[]>(KEY_PENDING, []);
-    pending.push(full);
-    if (pending.length > MAX_PENDING) pending.splice(0, pending.length - MAX_PENDING);
-    this.write(KEY_PENDING, pending);
+    const latestPending = this.read<JournalEvent[]>(KEY_PENDING, []);
+    latestPending.push(full);
+    if (latestPending.length > MAX_PENDING) latestPending.splice(0, latestPending.length - MAX_PENDING);
+    this.write(KEY_PENDING, latestPending);
     this.scheduleFlush();
   }
 
@@ -189,9 +259,19 @@ export class CartJournalClient {
     }
     const items: Record<string, number> = {};
     for (const [itemId, entry] of this.items) if (entry.qty > 0) items[itemId] = entry.qty;
-    const snapshot: CartSnapshot = { cartId: this.cartId, items, lastAt: this.now(), heartbeat: this.now(), closed: this.cartClosed };
+    const snapshot: CartSnapshot = {
+      cartId: this.cartId,
+      ownerTabId: this.ownerTabId,
+      items,
+      lastAt: this.now(),
+      heartbeat: this.now(),
+      closed: this.cartClosed
+    };
     this.write(key, snapshot);
-    if (!index.includes(this.cartId)) this.write(KEY_CARTS, [...index, this.cartId]);
+    const refreshedIndex = this.read<string[]>(KEY_CARTS, []);
+    if (!refreshedIndex.includes(this.cartId)) {
+      this.write(KEY_CARTS, [...refreshedIndex, this.cartId]);
+    }
   }
 
   private dropSnapshot(cartId: string) {
@@ -317,9 +397,8 @@ export class CartJournalClient {
     }, this.flushDelayMs);
   }
 
-  /** يرفع الأحداث المعلقة. يرجع true لو لم يبقَ شيء معلق */
+  /** يرفع الأحداث المعلقة بشكل متسلسل ومحمي بقفل حصري عبر التبويبات. يرجع true لو لم يبقَ شيء معلق */
   async flush(options: { keepalive?: boolean } = {}): Promise<boolean> {
-    // لو فيه رفع جارٍ ننتظره ثم نرفع ما تبقى
     while (this.sendingPromise) {
       try {
         await this.sendingPromise;
@@ -337,20 +416,36 @@ export class CartJournalClient {
   }
 
   private async runFlush(options: { keepalive?: boolean }): Promise<boolean> {
-    for (;;) {
-      const pending = this.read<JournalEvent[]>(KEY_PENDING, []);
-      if (pending.length === 0) return true;
-      const batch = pending.slice(0, BATCH_SIZE);
-      const result = await this.send({ deviceId: this.deviceId, events: batch }, { keepalive: Boolean(options.keepalive) });
-      const lastSeq = Number(result?.lastSeq);
-      if (!Number.isFinite(lastSeq)) throw new Error('رد غير صالح من السيرفر');
-      // السيرفر لم يقبل أي حدث من الدفعة (بيانات غير صالحة): نسقطها حتى لا تحبس ما بعدها
-      const confirmedUpTo = lastSeq < batch[0].seq ? batch[batch.length - 1].seq : lastSeq;
-      const remaining = this.read<JournalEvent[]>(KEY_PENDING, []).filter(event => event.seq > confirmedUpTo);
-      this.write(KEY_PENDING, remaining);
-      // لو عدّاد الجهاز أقل من عدّاد السيرفر (تخزين ناقص) نكمل العدّ من رقم السيرفر
-      if (lastSeq > (Number(this.read<number>(KEY_SEQ, 0)) || 0)) this.write(KEY_SEQ, lastSeq);
-    }
+    return runWithCrossTabFlushLock(async () => {
+      for (;;) {
+        const pending = this.read<JournalEvent[]>(KEY_PENDING, []);
+        if (pending.length === 0) return true;
+        // ضمان الترتيب التصاعدي حسب seq عند الرفع من عدة تبويبات
+        const ordered = [...pending].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
+        const batch = ordered.slice(0, BATCH_SIZE);
+        const result = await this.send(
+          { deviceId: this.deviceId, events: batch },
+          { keepalive: Boolean(options.keepalive) }
+        );
+        const lastSeq = Number(result?.lastSeq);
+        if (!Number.isFinite(lastSeq)) throw new Error('رد غير صالح من السيرفر');
+        // السيرفر لم يقبل أي حدث من الدفعة (بيانات غير صالحة): نسقط الدفعة المرسلة فقط
+        const confirmedUpTo = lastSeq < batch[0].seq ? batch[batch.length - 1].seq : lastSeq;
+        // إعادة قراءة المخزن لحظة الحذف حتى لا تضيع أي أحداث أضافها تبويب آخر أثناء الإرسال
+        const latestPending = this.read<JournalEvent[]>(KEY_PENDING, []);
+        const sentSeqSet = new Set(
+          batch.filter((ev) => ev.seq <= confirmedUpTo).map((ev) => `${ev.seq}:${ev.cartId}`)
+        );
+        const remaining = latestPending.filter(
+          (event) => event.seq > confirmedUpTo && !sentSeqSet.has(`${event.seq}:${event.cartId}`)
+        );
+        this.write(KEY_PENDING, remaining);
+        // لو عدّاد الجهاز أقل من عدّاد السيرفر (تخزين ناقص) نكمل العدّ من رقم السيرفر
+        if (lastSeq > (Number(this.read<number>(KEY_SEQ, 0)) || 0)) {
+          this.write(KEY_SEQ, lastSeq);
+        }
+      }
+    });
   }
 
   // ---- التشغيل -------------------------------------------------------------------
@@ -374,6 +469,12 @@ export class CartJournalClient {
         this.push({ cartId, type: 'close', reason: 'crash', at: snapshot.lastAt || this.now() });
       }
       this.remove(KEY_CART_PREFIX + cartId);
+    }
+    const latestIndex = this.read<string[]>(KEY_CARTS, []);
+    for (const cartId of latestIndex) {
+      if (!index.includes(cartId) && !keep.includes(cartId)) {
+        keep.push(cartId);
+      }
     }
     this.write(KEY_CARTS, keep);
   }

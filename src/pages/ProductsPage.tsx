@@ -45,6 +45,7 @@ import {
   INPUT_WIDTH_CLASSES,
   FORM_CONTROL_BASE_CLASS
 } from '../components/ui';
+import { getHrefForTarget, getHrefForItemRoute, isPlainLeftClick } from '../config/navigation';
 
 export interface ProductsPageProps {
   items: Item[];
@@ -55,6 +56,7 @@ export interface ProductsPageProps {
   user?: UserAccount | null;
   displaySettings?: Partial<DisplaySettings>;
   currentTab?: string;
+  initialCategoryId?: string;
   onNavigateItemRoute: (path: string, item?: Item) => void;
   onDeleteItem: (id: string) => Promise<{ success: boolean; message?: string; hasTransactions?: boolean; error?: string }>;
   onArchiveItem?: (id: string) => Promise<{ success: boolean; message?: string }>;
@@ -87,6 +89,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
   user,
   displaySettings,
   currentTab,
+  initialCategoryId,
   onNavigateItemRoute,
   onDeleteItem,
   onArchiveItem,
@@ -112,7 +115,7 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
   // Filters & query state
   const [search, setSearch] = useState('');
   const [barcodeOnly, setBarcodeOnly] = useState(false);
-  const [categoryId, setCategoryId] = useState('ALL');
+  const [categoryId, setCategoryId] = useState(() => initialCategoryId || 'ALL');
   const [supplierFilter, setSupplierFilter] = useState('ALL');
   const [stockStatus, setStockStatus] = useState<string>(() => {
     if (currentTab === 'LOW' || currentTab === 'LOW_STOCK') return 'LOW';
@@ -129,6 +132,13 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
   const [sortBy, setSortBy] = useState<string>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState<number>(1);
+
+  useEffect(() => {
+    if (initialCategoryId !== undefined) {
+      setCategoryId(initialCategoryId || 'ALL');
+      setPage(1);
+    }
+  }, [initialCategoryId]);
 
   // Server paginated data
   const [pagedItems, setPagedItems] = useState<Item[]>(initialItems.slice(0, PAGE_SIZE));
@@ -530,25 +540,35 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
       actions={
         <div className="flex flex-wrap items-center gap-2">
           {canCreate && (
-            <button
-              type="button"
-              onClick={() => onNavigateItemRoute('/items/new')}
+            <a
+              href={getHrefForItemRoute('new')}
+              onClick={(e) => {
+                if (!isPlainLeftClick(e)) return;
+                e.preventDefault();
+                onNavigateItemRoute('/items/new');
+              }}
               className="min-h-[44px] px-4 py-2 rounded-lg bg-[#157347] hover:bg-[#115e3a] text-white text-sm font-semibold inline-flex items-center gap-2 transition-colors cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>إضافة صنف</span>
               <ShortcutBadge actionId="general.add_new" />
-            </button>
+            </a>
           )}
           {canBulkImport && onOpenBulkImport && (
-            <button
-              type="button"
-              onClick={onOpenBulkImport}
+            <a
+              href={getHrefForTarget('bulk_edit_excel', 'add_items', {
+                searchParams: { operationType: 'add_items' }
+              })}
+              onClick={(e) => {
+                if (!isPlainLeftClick(e)) return;
+                e.preventDefault();
+                onOpenBulkImport();
+              }}
               className="min-h-[44px] px-3.5 py-2 rounded-lg border border-[var(--border-color)] bg-[var(--surface)] text-[var(--text-primary)] hover:bg-[var(--surface-subtle)] text-sm font-semibold inline-flex items-center gap-2 transition-colors cursor-pointer"
             >
               <Upload className="w-4 h-4" />
               <span>استيراد / إضافة إكسيل</span>
-            </button>
+            </a>
           )}
           {canExport && (
             <button
@@ -901,13 +921,17 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                         className={`${FORM_CONTROL_BASE_CLASS} ${INPUT_WIDTH_CLASSES.name} max-w-[300px]`}
                       />
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => onNavigateItemRoute(`/items/${encodeURIComponent(item.id)}`, item)}
-                        className="min-h-[44px] text-right font-semibold text-[#155E9A] dark:text-[#7DD3FC] hover:underline cursor-pointer"
+                      <a
+                        href={getHrefForItemRoute('edit', item.id)}
+                        onClick={(e) => {
+                          if (!isPlainLeftClick(e)) return;
+                          e.preventDefault();
+                          onNavigateItemRoute(`/items/${encodeURIComponent(item.id)}`, item);
+                        }}
+                        className="min-h-[44px] inline-flex items-center text-right font-semibold text-[#155E9A] dark:text-[#7DD3FC] hover:underline cursor-pointer"
                       >
                         {item.name}
-                      </button>
+                      </a>
                     )}
                   </td>
 
@@ -1062,14 +1086,18 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                             </button>
                           )}
                           {canEdit && (
-                            <button
-                              type="button"
-                              onClick={() => onNavigateItemRoute(`/items/${encodeURIComponent(item.id)}`, item)}
+                            <a
+                              href={getHrefForItemRoute('edit', item.id)}
+                              onClick={(e) => {
+                                if (!isPlainLeftClick(e)) return;
+                                e.preventDefault();
+                                onNavigateItemRoute(`/items/${encodeURIComponent(item.id)}`, item);
+                              }}
                               className="min-h-[44px] px-2.5 rounded text-[#1668B2] dark:text-[#7DD3FC] hover:bg-[var(--surface-subtle)] inline-flex items-center gap-1 text-xs font-semibold cursor-pointer"
                               title="تعديل الصنف"
                             >
                               <Edit3 className="w-4 h-4" />
-                            </button>
+                            </a>
                           )}
                           {canEdit && onArchiveItem && item.status !== 'مؤرشف' && (
                             <button

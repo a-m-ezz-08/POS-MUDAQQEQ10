@@ -854,6 +854,7 @@
 }
 
 button.navbar-glass-chip:hover,
+a.navbar-glass-chip.cursor-pointer:hover,
 div.navbar-glass-chip.cursor-pointer:hover {
   background-color: var(--nav-chip-bg-hover);
 }
@@ -914,7 +915,8 @@ a.navbar-glass-chip::after {
   color: var(--nav-chip-amber-text);
 }
 
-button.navbar-glass-chip--amber:hover {
+button.navbar-glass-chip--amber:hover,
+a.navbar-glass-chip--amber.cursor-pointer:hover {
   background-color: var(--nav-chip-amber-bg-hover);
 }
 
@@ -1001,8 +1003,8 @@ button.navbar-glass-chip--amber:hover {
   box-shadow: 0 8px 18px rgba(10, 95, 194, 0.28);
 }
 
-[data-theme="aurora"] #root aside[data-app-sidebar="true"] button,
-[data-theme="aurora-sky"] #root aside[data-app-sidebar="true"] button {
+[data-theme="aurora"] #root aside[data-app-sidebar="true"] :is(button, a.mudaqqeq-nav-row, a.mudaqqeq-collapsed-btn, a.mudaqqeq-pos-cta),
+[data-theme="aurora-sky"] #root aside[data-app-sidebar="true"] :is(button, a.mudaqqeq-nav-row, a.mudaqqeq-collapsed-btn, a.mudaqqeq-pos-cta) {
   min-height: 44px;
 }
 

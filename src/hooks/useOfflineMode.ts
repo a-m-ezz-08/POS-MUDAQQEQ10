@@ -10,6 +10,7 @@ import {
   SyncedOutboxInvoiceItem
 } from '../offline/db';
 import { subscribeApiStatus } from '../api/client';
+import { hasOfflineLockOwnership, assertOfflineWriteOwnership } from '../offline/offlineLock';
 import { UserAccount } from '../types';
 
 export interface OfflineModeState {
@@ -91,8 +92,14 @@ function updateSharedState(patch: Partial<SharedOfflineState>) {
     } catch (_) {}
   });
 
-  // عند رجوع الاتصال من أوفلاين إلى أونلاين ووجود عمليات معلقة، يعمل محرك المزامنة تلقائيًا
-  if (!prevOnline && sharedState.isOnline && sharedState.pendingCount > 0 && !sharedState.isSyncingOutbox) {
+  // عند رجوع الاتصال من أوفلاين إلى أونلاين ووجود عمليات معلقة، يعمل محرك المزامنة تلقائيًا فقط في التبويب المالك لقفل الأوفلاين
+  if (
+    !prevOnline &&
+    sharedState.isOnline &&
+    sharedState.pendingCount > 0 &&
+    !sharedState.isSyncingOutbox &&
+    hasOfflineLockOwnership()
+  ) {
     triggerOutboxSyncNow().catch(() => {});
   }
 }
@@ -103,6 +110,22 @@ export async function triggerOutboxSyncNow(options?: {
   onOperationSynced?: (item: SyncedOutboxInvoiceItem) => void;
 }): Promise<OutboxSyncResult> {
   const user = getCurrentStoredUser();
+  try {
+    await assertOfflineWriteOwnership();
+  } catch (lockErr: any) {
+    const msg = lockErr?.message || 'المزامنة متاحة في تبويب واحد فقط';
+    updateSharedState({ isSyncingOutbox: false, lastOutboxError: msg });
+    return {
+      success: false,
+      totalProcessed: 0,
+      syncedCount: 0,
+      failedCount: 1,
+      remainingCount: sharedState.pendingCount,
+      syncedInvoices: [],
+      lastError: msg,
+      nextRetryDelayMs: null
+    };
+  }
   updateSharedState({ isSyncingOutbox: true, lastOutboxError: null });
   try {
     const res = await syncOutboxOperations({
@@ -182,7 +205,12 @@ export async function probeApiHealth(): Promise<boolean> {
       const healthyOnline = !sheetsBroken;
 
       updateSharedState({ isOnline: healthyOnline, isCheckingHealth: false });
-      if (healthyOnline && sharedState.pendingCount > 0 && !sharedState.isSyncingOutbox) {
+      if (
+        healthyOnline &&
+        sharedState.pendingCount > 0 &&
+        !sharedState.isSyncingOutbox &&
+        hasOfflineLockOwnership()
+      ) {
         triggerOutboxSyncNow().catch(() => {});
       }
       return healthyOnline;

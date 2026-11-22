@@ -35,12 +35,18 @@ import {
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
+import { getHrefForTarget, isPlainLeftClick } from '../config/navigation';
 
 interface CustomersPageProps {
   user: UserAccount | null;
   userRole: UserRole;
   initialTab?: TabType;
-  onNavigate?: (page: PageType, tab?: string) => void;
+  initialCustomerId?: string;
+  onNavigate?: (
+    page: PageType,
+    tab?: string,
+    options?: { searchParams?: Record<string, string | undefined>; replace?: boolean }
+  ) => void;
 }
 
 type TabType =
@@ -56,6 +62,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
   user,
   userRole,
   initialTab,
+  initialCustomerId,
   onNavigate,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'CUSTOMERS');
@@ -69,7 +76,13 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerGroups, setCustomerGroups] = useState<CustomerGroup[]>([]);
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([]);
-  const [selectedCustomerIdForLedger, setSelectedCustomerIdForLedger] = useState<string>('');
+  const [selectedCustomerIdForLedger, setSelectedCustomerIdForLedger] = useState<string>(() => initialCustomerId || '');
+
+  useEffect(() => {
+    if (initialCustomerId) {
+      setSelectedCustomerIdForLedger(initialCustomerId);
+    }
+  }, [initialCustomerId]);
   const [customerLedger, setCustomerLedger] = useState<CustomerLedgerEntry[]>([]);
   const [ledgerOpeningBalanceForPeriod, setLedgerOpeningBalanceForPeriod] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -107,7 +120,7 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
       if (grpRes.success) setCustomerGroups(grpRes.groups);
       if (cbRes.success) setCashboxes(cbRes.cashboxes);
 
-      if (custRes.customers.length > 0 && !selectedCustomerIdForLedger) {
+      if (custRes.customers.length > 0 && !selectedCustomerIdForLedger && !initialCustomerId) {
         setSelectedCustomerIdForLedger(custRes.customers[0].id);
       }
     } catch (err: any) {
@@ -458,28 +471,46 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                       <td className={COMPACT_TABLE_NUM_CLASS}>{c.status}</td>
                       <td className={`no-print ${COMPACT_TABLE_NUM_CLASS}`}>
                         <div className="inline-flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
+                          <a
+                            href={getHrefForTarget('customers', 'CREDIT_COLLECTION', {
+                              searchParams: { customerId: c.id }
+                            })}
+                            onClick={(e) => {
+                              if (!isPlainLeftClick(e)) return;
+                              e.preventDefault();
                               setSelectedCustomerIdForLedger(c.id);
-                              if (onNavigate) onNavigate('customers', 'CREDIT_COLLECTION');
-                              else setActiveTab('CREDIT_COLLECTION');
+                              if (onNavigate) {
+                                onNavigate('customers', 'CREDIT_COLLECTION', {
+                                  searchParams: { customerId: c.id }
+                                });
+                              } else {
+                                setActiveTab('CREDIT_COLLECTION');
+                              }
                             }}
-                            className="min-h-[44px] px-2.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-stock-low text-xs font-bold cursor-pointer"
+                            className="min-h-[44px] inline-flex items-center px-2.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-stock-low text-xs font-bold cursor-pointer"
                           >
                             تحصيل الآجل
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
+                          </a>
+                          <a
+                            href={getHrefForTarget('customers', 'STATEMENT', {
+                              searchParams: { customerId: c.id }
+                            })}
+                            onClick={(e) => {
+                              if (!isPlainLeftClick(e)) return;
+                              e.preventDefault();
                               setSelectedCustomerIdForLedger(c.id);
-                              if (onNavigate) onNavigate('customers', 'STATEMENT');
-                              else setActiveTab('STATEMENT');
+                              if (onNavigate) {
+                                onNavigate('customers', 'STATEMENT', {
+                                  searchParams: { customerId: c.id }
+                                });
+                              } else {
+                                setActiveTab('STATEMENT');
+                              }
                             }}
-                            className="min-h-[44px] px-2.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-link text-xs font-bold cursor-pointer"
+                            className="min-h-[44px] inline-flex items-center px-2.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-link text-xs font-bold cursor-pointer"
                           >
                             كشف الحساب
-                          </button>
+                          </a>
                           <button
                             type="button"
                             onClick={() => {
@@ -627,28 +658,46 @@ export const CustomersPage: React.FC<CustomersPageProps> = ({
                     </td>
                     <td className={`no-print ${COMPACT_TABLE_NUM_CLASS}`}>
                       <div className="inline-flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
+                        <a
+                          href={getHrefForTarget('customers', 'CREDIT_COLLECTION', {
+                            searchParams: { customerId: c.id }
+                          })}
+                          onClick={(e) => {
+                            if (!isPlainLeftClick(e)) return;
+                            e.preventDefault();
                             setSelectedCustomerIdForLedger(c.id);
-                            if (onNavigate) onNavigate('customers', 'CREDIT_COLLECTION');
-                            else setActiveTab('CREDIT_COLLECTION');
+                            if (onNavigate) {
+                              onNavigate('customers', 'CREDIT_COLLECTION', {
+                                searchParams: { customerId: c.id }
+                              });
+                            } else {
+                              setActiveTab('CREDIT_COLLECTION');
+                            }
                           }}
-                          className="min-h-[44px] px-2.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-stock-low text-xs font-bold cursor-pointer"
+                          className="min-h-[44px] inline-flex items-center px-2.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-stock-low text-xs font-bold cursor-pointer"
                         >
                           تحصيل الآجل
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
+                        </a>
+                        <a
+                          href={getHrefForTarget('customers', 'STATEMENT', {
+                            searchParams: { customerId: c.id }
+                          })}
+                          onClick={(e) => {
+                            if (!isPlainLeftClick(e)) return;
+                            e.preventDefault();
                             setSelectedCustomerIdForLedger(c.id);
-                            if (onNavigate) onNavigate('customers', 'STATEMENT');
-                            else setActiveTab('STATEMENT');
+                            if (onNavigate) {
+                              onNavigate('customers', 'STATEMENT', {
+                                searchParams: { customerId: c.id }
+                              });
+                            } else {
+                              setActiveTab('STATEMENT');
+                            }
                           }}
-                          className="min-h-[44px] px-2.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-link text-xs font-bold cursor-pointer"
+                          className="min-h-[44px] inline-flex items-center px-2.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-link text-xs font-bold cursor-pointer"
                         >
                           عرض الحساب
-                        </button>
+                        </a>
                       </div>
                     </td>
                   </tr>

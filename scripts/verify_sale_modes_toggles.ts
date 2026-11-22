@@ -321,6 +321,24 @@ async function runServerAndOfflineChecks() {
     assert((await sellPlatform()).status === 200, 'API (الحالة 3): البيع على منصة يعمل');
     const directBlocked = await sellDirect();
     assert(directBlocked.status === 403 && directBlocked.data.code === 'DIRECT_SALE_DISABLED', 'API (الحالة 3): البيع المباشر مرفوض بـ 403');
+    const disguisedDirectOnline = await call('POST', '/api/invoices', {
+      idempotencyKey: `m-direct-disguised-${Date.now()}-${++seq}`,
+      platform: 'البيع المباشر',
+      platformId: 'direct',
+      paymentType: 'آجل',
+      creditPartyType: 'platform',
+      lines: [{ itemId: item.id, quantity: 1 }]
+    }, owner);
+    assert(disguisedDirectOnline.status === 403 && disguisedDirectOnline.data.code === 'DIRECT_SALE_DISABLED', 'API (الحالة 3): رفض البيع المباشر حتى لو أُرسل مع creditPartyType=platform');
+    const disguisedDirectOfflineSync = await call('POST', '/api/offline/sync', {
+      idempotencyKey: `m-direct-sync-disguised-${Date.now()}-${++seq}`,
+      platform: 'البيع المباشر',
+      platformId: 'direct',
+      paymentType: 'آجل',
+      creditPartyType: 'platform',
+      lines: [{ itemId: item.id, quantity: 1 }]
+    }, owner);
+    assert(disguisedDirectOfflineSync.status === 403 && disguisedDirectOfflineSync.data.code === 'DIRECT_SALE_DISABLED', 'API sync (الحالة 3): رفض مزامنة بيع مباشر مموّه بـ creditPartyType=platform');
 
     // حالة عدم وجود منصة نشطة في وضع المنصة فقط: لا يسقط تلقائيًا للبيع المباشر ويمنع الحفظ
     const deactRes = await call('POST', '/api/platforms', { ...noonPlatform, status: 'موقوفة' }, owner);
@@ -424,6 +442,25 @@ async function runServerAndOfflineChecks() {
       offErr = e;
     }
     assert(Boolean(offErr && /البيع المباشر/.test(offErr.message)), 'أوفلاين (المنصة فقط): يرفض حفظ فاتورة بيع مباشر محليًا');
+
+    offErr = null;
+    try {
+      await createOfflineInvoiceInDb({
+        invoicePayload: {
+          idempotencyKey: `off-dir-disguised-${Date.now()}`,
+          platformId: 'direct',
+          platformName: 'البيع المباشر',
+          paymentType: 'آجل',
+          creditPartyType: 'platform',
+          lines: [{ itemId: item.id, quantity: 1, salePriceAtSale: 120 }]
+        },
+        user: ownerUser,
+        salesRules: { ...defaultSalesRules(), allowPlatformSale: true, allowDirectSale: false }
+      });
+    } catch (e) {
+      offErr = e;
+    }
+    assert(Boolean(offErr && /البيع المباشر/.test(offErr.message)), 'أوفلاين (المنصة فقط): يرفض البيع المباشر المموّه بـ creditPartyType=platform');
 
     // عدم وجود منصة نشطة أوفلاين في وضع المنصة فقط
     await seedSnapshot({ allowPlatformSale: true, allowDirectSale: false }, []);

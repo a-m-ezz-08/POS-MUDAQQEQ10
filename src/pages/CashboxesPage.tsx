@@ -37,6 +37,7 @@ import {
 import { ShortcutBadge } from '../context/KeyboardShortcutsContext';
 import { BANK_LINK_SELECTED_ACCOUNT_STORAGE_KEY } from '../components/settings/BankLinkSection';
 import { BANK_LINK_SELECTED_MANUAL_STORAGE_KEY } from '../components/ManualBalancePrompt';
+import { getHrefForTarget, isPlainLeftClick } from '../config/navigation';
 
 interface BankLinkedCashboxBadge {
   id: string;
@@ -50,7 +51,12 @@ interface CashboxesPageProps {
   userRole: UserRole;
   users?: UserAccount[];
   initialTab?: TabType;
-  onNavigate?: (page: PageType, tab?: string) => void;
+  initialCashboxId?: string;
+  onNavigate?: (
+    page: PageType,
+    tab?: string,
+    options?: { searchParams?: Record<string, string | undefined>; replace?: boolean }
+  ) => void;
   initialCashboxes?: Cashbox[];
   initialBankLinkedAccounts?: BankLinkedCashboxBadge[];
   initialManualBalanceAccounts?: BankLinkedCashboxBadge[];
@@ -63,6 +69,7 @@ export const CashboxesPage: React.FC<CashboxesPageProps> = ({
   userRole,
   users = [],
   initialTab,
+  initialCashboxId,
   onNavigate,
   initialCashboxes,
   initialBankLinkedAccounts,
@@ -91,7 +98,13 @@ export const CashboxesPage: React.FC<CashboxesPageProps> = ({
   const [transactions, setTransactions] = useState<CashboxTransaction[]>([]);
   const [transfers, setTransfers] = useState<CashboxTransfer[]>([]);
   const [assignments, setAssignments] = useState<UserCashboxAssignment[]>([]);
-  const [selectedCashboxId, setSelectedCashboxId] = useState<string>('ALL');
+  const [selectedCashboxId, setSelectedCashboxId] = useState<string>(() => initialCashboxId || 'ALL');
+
+  useEffect(() => {
+    if (initialCashboxId !== undefined) {
+      setSelectedCashboxId(initialCashboxId || 'ALL');
+    }
+  }, [initialCashboxId]);
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false);
@@ -276,9 +289,11 @@ export const CashboxesPage: React.FC<CashboxesPageProps> = ({
         (isManager || canTransfer) ? (
           <>
             {canTransfer && activeTab !== 'TRANSFER' && (
-              <button
-                type="button"
-                onClick={() => {
+              <a
+                href={getHrefForTarget('cashboxes', 'TRANSFER')}
+                onClick={(e) => {
+                  if (!isPlainLeftClick(e)) return;
+                  e.preventDefault();
                   if (onNavigate) onNavigate('cashboxes', 'TRANSFER');
                   else setActiveTab('TRANSFER');
                 }}
@@ -286,7 +301,7 @@ export const CashboxesPage: React.FC<CashboxesPageProps> = ({
               >
                 <ArrowRightLeft className="w-4 h-4" />
                 <span>تحويل بين الخزائن</span>
-              </button>
+              </a>
             )}
 
             {isManager && activeTab === 'CASHBOXES' && (
@@ -391,18 +406,20 @@ export const CashboxesPage: React.FC<CashboxesPageProps> = ({
                           {canManageBankLink && (
                             <>
                               <span aria-hidden="true" className="text-[var(--text-secondary)]">·</span>
-                              <button
-                                type="button"
-                                onClick={() => {
+                              <a
+                                href={getHrefForTarget('settings', 'bank_link')}
+                                onClick={(e) => {
                                   if (typeof sessionStorage !== 'undefined') {
                                     sessionStorage.setItem(BANK_LINK_SELECTED_ACCOUNT_STORAGE_KEY, linkedBank.id);
                                   }
+                                  if (!isPlainLeftClick(e)) return;
+                                  e.preventDefault();
                                   if (onNavigate) onNavigate('settings', 'bank_link');
                                 }}
                                 className="ui-link underline underline-offset-2 font-bold cursor-pointer"
                               >
                                 تفاصيل الربط
-                              </button>
+                              </a>
                             </>
                           )}
                         </div>
@@ -421,18 +438,20 @@ export const CashboxesPage: React.FC<CashboxesPageProps> = ({
                           {canManageBankLink && (
                             <>
                               <span aria-hidden="true" className="text-[var(--text-secondary)]">·</span>
-                              <button
-                                type="button"
-                                onClick={() => {
+                              <a
+                                href={getHrefForTarget('settings', 'bank_link')}
+                                onClick={(e) => {
                                   if (typeof sessionStorage !== 'undefined') {
                                     sessionStorage.setItem(BANK_LINK_SELECTED_MANUAL_STORAGE_KEY, linkedManual.id);
                                   }
+                                  if (!isPlainLeftClick(e)) return;
+                                  e.preventDefault();
                                   if (onNavigate) onNavigate('settings', 'bank_link');
                                 }}
                                 className="ui-link underline underline-offset-2 font-bold cursor-pointer"
                               >
                                 تفاصيل المتابعة
-                              </button>
+                              </a>
                             </>
                           )}
                         </div>
@@ -449,17 +468,26 @@ export const CashboxesPage: React.FC<CashboxesPageProps> = ({
                     <td className={COMPACT_TABLE_NUM_CLASS}>{cb.status}</td>
                     <td className={`no-print ${COMPACT_TABLE_NUM_CLASS}`}>
                       <div className="inline-flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
+                        <a
+                          href={getHrefForTarget('cashboxes', 'TRANSACTIONS', {
+                            searchParams: { cashboxId: cb.id }
+                          })}
+                          onClick={(e) => {
+                            if (!isPlainLeftClick(e)) return;
+                            e.preventDefault();
                             setSelectedCashboxId(cb.id);
-                            if (onNavigate) onNavigate('cashboxes', 'TRANSACTIONS');
-                            else setActiveTab('TRANSACTIONS');
+                            if (onNavigate) {
+                              onNavigate('cashboxes', 'TRANSACTIONS', {
+                                searchParams: { cashboxId: cb.id }
+                              });
+                            } else {
+                              setActiveTab('TRANSACTIONS');
+                            }
                           }}
-                          className="min-h-[44px] px-3 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-link text-xs font-bold cursor-pointer"
+                          className="min-h-[44px] inline-flex items-center px-3 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-link text-xs font-bold cursor-pointer"
                         >
                           الحركات
-                        </button>
+                        </a>
                         {isManager && (
                           <button
                             type="button"

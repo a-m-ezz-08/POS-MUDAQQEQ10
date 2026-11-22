@@ -13,6 +13,7 @@ import {
 import { api } from '../api/client';
 import { hasPermission } from '../utils/permissions';
 import { toLayoutPx } from '../utils/uiScale';
+import { getHrefForTarget, getHrefForItemRoute, isPlainLeftClick } from '../config/navigation';
 import {
   X,
   Save,
@@ -1345,14 +1346,18 @@ export const ProductFormPage: React.FC<ProductFormPageProps> = ({
             <AlertCircle className="w-5 h-5 shrink-0" />
             <span>{fetchItemError}</span>
           </div>
-          <button
-            type="button"
-            onClick={onBackToList}
+          <a
+            href={getHrefForTarget('items')}
+            onClick={(e) => {
+              if (!isPlainLeftClick(e)) return;
+              e.preventDefault();
+              onBackToList();
+            }}
             className="min-h-[44px] inline-flex items-center gap-2 px-4 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] text-[var(--text-primary)] text-xs font-bold transition cursor-pointer"
           >
             <ArrowRight className="w-4 h-4" />
             <span>رجوع للأصناف</span>
-          </button>
+          </a>
         </div>
       </PageSurface>
     );
@@ -1381,15 +1386,19 @@ export const ProductFormPage: React.FC<ProductFormPageProps> = ({
               تعديلات غير محفوظة
             </span>
           )}
-          <button
-            type="button"
-            onClick={() => requestExitWithConfirm(onBackToList)}
+          <a
+            href={getHrefForTarget('items')}
+            onClick={(e) => {
+              if (!isPlainLeftClick(e)) return;
+              e.preventDefault();
+              requestExitWithConfirm(onBackToList);
+            }}
             className="min-h-[44px] inline-flex items-center gap-1.5 px-3.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] text-xs font-bold text-[var(--text-primary)] transition cursor-pointer"
             title="رجوع للأصناف"
           >
             <ArrowRight className="w-4 h-4" />
             <span>رجوع للأصناف</span>
-          </button>
+          </a>
         </>
       }
     >
@@ -1444,22 +1453,30 @@ export const ProductFormPage: React.FC<ProductFormPageProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleStartFreshNewItem}
+            <a
+              href={getHrefForItemRoute('new')}
+              onClick={(e) => {
+                if (!isPlainLeftClick(e)) return;
+                e.preventDefault();
+                handleStartFreshNewItem();
+              }}
               className="min-h-[44px] inline-flex items-center gap-1.5 px-3.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] text-[var(--text-primary)] text-xs font-bold transition cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>صنف جديد</span>
-            </button>
-            <button
-              type="button"
-              onClick={onBackToList}
+            </a>
+            <a
+              href={getHrefForTarget('items')}
+              onClick={(e) => {
+                if (!isPlainLeftClick(e)) return;
+                e.preventDefault();
+                onBackToList();
+              }}
               className="min-h-[44px] inline-flex items-center gap-1.5 px-4 rounded-lg bg-[#157347] hover:bg-[#115C38] text-white text-xs font-bold transition cursor-pointer"
             >
               <ArrowRight className="w-4 h-4" />
               <span>رجوع للأصناف</span>
-            </button>
+            </a>
           </div>
         </div>
       )}
@@ -1624,13 +1641,17 @@ export const ProductFormPage: React.FC<ProductFormPageProps> = ({
                   <span>
                     مسجل للصنف: ({nameConflict.name} - {nameConflict.sku || nameConflict.id})
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenConflictingItem(nameConflict)}
+                  <a
+                    href={getHrefForItemRoute('edit', nameConflict.id)}
+                    onClick={(e) => {
+                      if (!isPlainLeftClick(e)) return;
+                      e.preventDefault();
+                      handleOpenConflictingItem(nameConflict);
+                    }}
                     className="underline font-bold cursor-pointer"
                   >
                     فتح الصنف الموجود
-                  </button>
+                  </a>
                 </div>
               )}
 
@@ -1745,13 +1766,17 @@ export const ProductFormPage: React.FC<ProductFormPageProps> = ({
               {skuConflict && (
                 <div className="mt-1 text-xs font-semibold ui-stock-out flex flex-wrap items-center gap-1.5">
                   <span>مسجل للصنف ({skuConflict.name})</span>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenConflictingItem(skuConflict)}
+                  <a
+                    href={getHrefForItemRoute('edit', skuConflict.id)}
+                    onClick={(e) => {
+                      if (!isPlainLeftClick(e)) return;
+                      e.preventDefault();
+                      handleOpenConflictingItem(skuConflict);
+                    }}
                     className="underline font-bold cursor-pointer"
                   >
                     فتح الصنف الموجود
-                  </button>
+                  </a>
                 </div>
               )}
             </div>
@@ -1965,13 +1990,17 @@ export const ProductFormPage: React.FC<ProductFormPageProps> = ({
                   <span>
                     مسجل للصنف: ({barcodeConflict.name} - {barcodeConflict.sku || barcodeConflict.id})
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenConflictingItem(barcodeConflict)}
+                  <a
+                    href={getHrefForItemRoute('edit', barcodeConflict.id)}
+                    onClick={(e) => {
+                      if (!isPlainLeftClick(e)) return;
+                      e.preventDefault();
+                      handleOpenConflictingItem(barcodeConflict);
+                    }}
                     className="underline font-bold cursor-pointer"
                   >
                     فتح الصنف الموجود
-                  </button>
+                  </a>
                 </div>
               )}
             </div>
@@ -2017,13 +2046,17 @@ export const ProductFormPage: React.FC<ProductFormPageProps> = ({
                   <span>
                     مسجل للصنف: ({secBarcodeConflict.name} - {secBarcodeConflict.sku || secBarcodeConflict.id})
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenConflictingItem(secBarcodeConflict)}
+                  <a
+                    href={getHrefForItemRoute('edit', secBarcodeConflict.id)}
+                    onClick={(e) => {
+                      if (!isPlainLeftClick(e)) return;
+                      e.preventDefault();
+                      handleOpenConflictingItem(secBarcodeConflict);
+                    }}
                     className="underline font-bold cursor-pointer"
                   >
                     فتح الصنف الموجود
-                  </button>
+                  </a>
                 </div>
               )}
             </div>
@@ -2679,14 +2712,24 @@ export const ProductFormPage: React.FC<ProductFormPageProps> = ({
 
         {/* شريط «حفظ» و«إلغاء» السفلي */}
         <div className="sticky bottom-14 md:bottom-0 z-30 bg-[var(--surface)] border-t border-[var(--border-color)] pt-4 pb-2 flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => requestExitWithConfirm(onBackToList)}
-            disabled={isSubmitting}
-            className="min-h-[44px] px-5 rounded-lg border border-[var(--border-color)] text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--surface-subtle)] transition cursor-pointer disabled:opacity-50"
+          <a
+            href={getHrefForTarget('items')}
+            aria-disabled={isSubmitting}
+            onClick={(e) => {
+              if (isSubmitting) {
+                e.preventDefault();
+                return;
+              }
+              if (!isPlainLeftClick(e)) return;
+              e.preventDefault();
+              requestExitWithConfirm(onBackToList);
+            }}
+            className={`min-h-[44px] inline-flex items-center px-5 rounded-lg border border-[var(--border-color)] text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--surface-subtle)] transition cursor-pointer ${
+              isSubmitting ? 'opacity-50 pointer-events-none' : ''
+            }`}
           >
             إلغاء
-          </button>
+          </a>
 
           <button
             type="submit"

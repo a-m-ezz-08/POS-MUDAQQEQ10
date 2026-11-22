@@ -17,6 +17,7 @@ import {
   UI_PREFS_STORAGE_KEY,
   UiPrefs
 } from '../../utils/uiScale';
+import { getHrefForTarget, isPlainLeftClick } from '../../config/navigation';
 
 export interface PosProductGridProps {
   items: Item[];
@@ -425,14 +426,18 @@ export const PosProductGrid: React.FC<PosProductGridProps> = ({
               لا توجد تصنيفات مختارة للعرض في شاشة البيع حالياً. يرجى تحديد التصنيفات الرئيسية والفرعية المطلوب إظهارها من إعدادات عرض شاشة البيع.
             </p>
             {canCustomizeDisplay && onOpenCategorySettings && (
-              <button
-                type="button"
-                onClick={onOpenCategorySettings}
+              <a
+                href={getHrefForTarget('settings', 'sales')}
+                onClick={(e) => {
+                  if (!isPlainLeftClick(e)) return;
+                  e.preventDefault();
+                  onOpenCategorySettings();
+                }}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-200 text-xs font-bold cursor-pointer transition"
               >
                 <Settings className="w-3.5 h-3.5" />
                 <span>تحديد التصنيفات من الإعدادات</span>
-              </button>
+              </a>
             )}
           </div>
         ) : activeRootCategory && activeRootHasSubCategoriesInSystem && visibleSubsOfActiveRoot.length === 0 ? (
@@ -445,14 +450,18 @@ export const PosProductGrid: React.FC<PosProductGridProps> = ({
               لا توجد تصنيفات فرعية مختارة للعرض تحت هذا التصنيف الرئيسي. يرجى تحديد التصنيفات الفرعية المطلوب إظهارها من إعدادات عرض شاشة البيع أو من قائمة «شكل الشاشة».
             </p>
             {canCustomizeDisplay && onOpenCategorySettings && (
-              <button
-                type="button"
-                onClick={onOpenCategorySettings}
+              <a
+                href={getHrefForTarget('settings', 'sales')}
+                onClick={(e) => {
+                  if (!isPlainLeftClick(e)) return;
+                  e.preventDefault();
+                  onOpenCategorySettings();
+                }}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-200 text-xs font-bold cursor-pointer transition"
               >
                 <Settings className="w-3.5 h-3.5" />
                 <span>تحديد التصنيفات الفرعية من الإعدادات</span>
-              </button>
+              </a>
             )}
           </div>
         ) : activeRootCategory && activeRootHasSubCategoriesInSystem && !effectiveSelectedSubId ? (

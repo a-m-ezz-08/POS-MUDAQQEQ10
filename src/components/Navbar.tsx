@@ -30,6 +30,7 @@ import { hasPermission } from '../utils/permissions';
 import { useRegisterShortcuts } from '../context/KeyboardShortcutsContext';
 import { formatDeviceTime } from './ManualBalancePrompt';
 import { api } from '../api/client';
+import { getHrefForTarget, isPlainLeftClick } from '../config/navigation';
 import { ModalShell, FORM_CONTROL_BASE_CLASS, INPUT_WIDTH_CLASSES } from './ui';
 
 interface NavbarProps {
@@ -280,16 +281,21 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Start Side: Compact Desktop Brand Chip (Non-Aurora) */}
           <div className="aurora-hide hidden md:flex items-center gap-[6px] shrink-0">
-            <button
-              type="button"
-              onClick={() => {
+            <a
+              href={getHrefForTarget(currentPage === 'pos' ? 'pos' : (salesOnlyMode ? 'pos' : 'dashboard'), undefined, {
+                user,
+                flags: { salesOnlyMode }
+              })}
+              onClick={(e) => {
+                if (!isPlainLeftClick(e)) return;
+                e.preventDefault();
                 if (currentPage === 'pos') {
                   window.location.reload();
                 } else {
                   onNavigate(salesOnlyMode ? 'pos' : 'dashboard');
                 }
               }}
-              className="aurora-hide hidden md:inline-flex navbar-glass-chip gap-2 cursor-pointer group shrink-0"
+              className="aurora-hide hidden md:inline-flex navbar-glass-chip gap-2 cursor-pointer group shrink-0 no-underline"
               title={
                 currentPage === 'pos'
                   ? 'تحديث صفحة نقطة البيع'
@@ -318,7 +324,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="navbar-chip-muted text-[11px] font-semibold leading-none shrink-0">
                 · {config.currency || 'EGP'}
               </span>
-            </button>
+            </a>
           </div>
 
           {/* End Side: Phone-Status-Bar Compact Cluster (Status, Device, Sync, Actions, Merged User Chip) */}
@@ -326,32 +332,51 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Connection / Preview Mode Chip */}
             <div className="relative shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  if (canOpenDatabaseSettings) {
+              {canOpenDatabaseSettings ? (
+                <a
+                  href={getHrefForTarget('settings', 'integration', { user, flags: { salesOnlyMode } })}
+                  onClick={(e) => {
+                    if (!isPlainLeftClick(e)) return;
+                    e.preventDefault();
                     onNavigate('settings', 'integration');
-                  }
-                }}
-                className={`navbar-glass-chip navbar-glass-chip--mobile-icon gap-1.5 ${
-                  canOpenDatabaseSettings ? 'cursor-pointer active:scale-95' : 'cursor-default'
-                } ${
-                  isSupabaseMode
-                    ? 'navbar-glass-chip--emerald'
-                    : 'navbar-glass-chip--amber'
-                }`}
-                title={statusTooltipFull}
-                aria-label={statusTooltipFull}
-              >
-                <span
-                  className={`w-2 h-2 rounded-full shrink-0 ${
+                  }}
+                  className={`navbar-glass-chip navbar-glass-chip--mobile-icon gap-1.5 cursor-pointer active:scale-95 no-underline ${
                     isSupabaseMode
-                      ? 'bg-emerald-500 animate-pulse'
-                      : 'bg-amber-500 animate-pulse'
+                      ? 'navbar-glass-chip--emerald'
+                      : 'navbar-glass-chip--amber'
                   }`}
-                />
-                <span className="hidden sm:inline">{statusLabelShort}</span>
-              </button>
+                  title={statusTooltipFull}
+                  aria-label={statusTooltipFull}
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      isSupabaseMode
+                        ? 'bg-emerald-500 animate-pulse'
+                        : 'bg-amber-500 animate-pulse'
+                    }`}
+                  />
+                  <span className="hidden sm:inline">{statusLabelShort}</span>
+                </a>
+              ) : (
+                <div
+                  className={`navbar-glass-chip navbar-glass-chip--mobile-icon gap-1.5 cursor-default ${
+                    isSupabaseMode
+                      ? 'navbar-glass-chip--emerald'
+                      : 'navbar-glass-chip--amber'
+                  }`}
+                  title={statusTooltipFull}
+                  aria-label={statusTooltipFull}
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      isSupabaseMode
+                        ? 'bg-emerald-500 animate-pulse'
+                        : 'bg-amber-500 animate-pulse'
+                    }`}
+                  />
+                  <span className="hidden sm:inline">{statusLabelShort}</span>
+                </div>
+              )}
             </div>
 
             {/* Browser Offline Chip */}

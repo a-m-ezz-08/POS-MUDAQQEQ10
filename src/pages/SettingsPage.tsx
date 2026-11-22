@@ -1155,11 +1155,31 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setStockSettings(nextStock);
   }, [config.stockSettings]);
 
+  const hasUnsavedSalesRulesRef = useRef(false);
+  hasUnsavedSalesRulesRef.current =
+    Boolean(salesRules.salesOnlyMode) !== Boolean(committedSalesRules.salesOnlyMode) ||
+    (salesRules.platformsEnabled !== false && !salesRules.salesOnlyMode) !==
+      (committedSalesRules.platformsEnabled !== false && !committedSalesRules.salesOnlyMode) ||
+    salesRules.defaultSaleMode !== committedSalesRules.defaultSaleMode ||
+    salesRules.platformSelection !== committedSalesRules.platformSelection ||
+    (salesRules.platformSelection === 'fixed' ? salesRules.defaultPlatformId : '') !==
+      (committedSalesRules.platformSelection === 'fixed' ? committedSalesRules.defaultPlatformId : '') ||
+    salesRules.customerSelection !== committedSalesRules.customerSelection ||
+    (salesRules.customerSelection === 'fixed' ? salesRules.defaultCustomerId : '') !==
+      (committedSalesRules.customerSelection === 'fixed' ? committedSalesRules.defaultCustomerId : '') ||
+    Boolean(salesRules.allowZeroPriceSale) !== Boolean(committedSalesRules.allowZeroPriceSale) ||
+    Boolean(salesRules.allowBelowCostSale) !== Boolean(committedSalesRules.allowBelowCostSale) ||
+    Boolean(salesRules.platformAlwaysCredit) !== Boolean(committedSalesRules.platformAlwaysCredit) ||
+    (salesRules.allowPlatformSale !== false) !== (committedSalesRules.allowPlatformSale !== false) ||
+    (salesRules.allowDirectSale !== false) !== (committedSalesRules.allowDirectSale !== false);
+
   useEffect(() => {
     if (!config.salesRules) return;
     const norm = normalizeClientSalesRules(config.salesRules);
     setCommittedSalesRules(norm);
-    setSalesRules(norm);
+    if (!hasUnsavedSalesRulesRef.current) {
+      setSalesRules(norm);
+    }
   }, [config.salesRules]);
 
   useEffect(() => {
@@ -4378,8 +4398,31 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               تحكّم مركزي على مستوى المنشأة في تفعيل مبيعات ووظائف المنصات أو تشغيل البرنامج بوضع البيع المباشر فقط. لا تُحذف أي بيانات أو فواتير سابقة عند الإيقاف.
             </p>
             {isDraftPlatformsOn && salesRules.allowPlatformSale === false && (
-              <div className="p-3 rounded-xl border border-amber-300 bg-amber-50 text-xs font-bold text-amber-900">
-                ملاحظة: شاشات وتقارير وتحصيل المنصات مفعّلة، بينما مفتاح «السماح بالبيع على منصة» متوقف حاليًا في قسم «البيع ونقطة البيع».
+              <div className="p-3 rounded-xl border border-amber-300 bg-amber-50 text-xs font-bold text-amber-900 flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  ملاحظة: شاشات وتقارير وتحصيل المنصات مفعّلة، بينما مفتاح «السماح بالبيع على منصة» متوقف حاليًا في قسم «نقطة البيع وقواعد السعر».
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveSection('pos_sales')}
+                  className="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 text-xs font-extrabold cursor-pointer transition shrink-0"
+                >
+                  فتح «نقطة البيع وقواعد السعر»
+                </button>
+              </div>
+            )}
+            {isDraftPlatformsOn && salesRules.allowDirectSale !== false && (
+              <div className="p-3 rounded-xl border border-sky-200 bg-sky-50 text-xs font-bold text-sky-900 flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  تفعيل المنصات هنا يُفعّل قسم المنصات فقط مع بقاء «السماح بالبيع المباشر للعميل» مفعّلًا. لقصر نقطة البيع على المنصات فقط، أوقف «السماح بالبيع المباشر للعميل» من قسم «نقطة البيع وقواعد السعر».
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveSection('pos_sales')}
+                  className="px-2.5 py-1 rounded-lg bg-sky-100 hover:bg-sky-200 text-sky-950 border border-sky-300 text-xs font-extrabold cursor-pointer transition shrink-0"
+                >
+                  ضبط أوضاع البيع
+                </button>
               </div>
             )}
             <div>

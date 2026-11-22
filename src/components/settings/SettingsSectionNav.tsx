@@ -4,6 +4,7 @@ import {
   SettingsSectionId,
   SettingsSectionMeta
 } from './settingsSections';
+import { getHrefForTarget, isPlainLeftClick } from '../../config/navigation';
 
 interface SettingsSectionNavProps {
   visibleSections: SettingsSectionMeta[];
@@ -90,12 +91,16 @@ export const SettingsSectionNav: React.FC<SettingsSectionNavProps> = ({
                     const isDirty = Boolean(sectionDirtyMap[sec.id]);
                     return (
                       <li key={sec.id}>
-                        <button
-                          type="button"
-                          onClick={() => onSelectSection(sec.id)}
+                        <a
+                          href={getHrefForTarget('settings', sec.id)}
+                          onClick={(e) => {
+                            if (!isPlainLeftClick(e)) return;
+                            e.preventDefault();
+                            onSelectSection(sec.id);
+                          }}
                           aria-current={isActive ? 'page' : undefined}
                           data-testid={`settings-nav-${sec.id}`}
-                          className={`w-full min-h-[40px] px-2.5 py-2 rounded-lg text-right flex items-center justify-between gap-2 text-xs transition cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] ${
+                          className={`w-full min-h-[40px] px-2.5 py-2 rounded-lg text-right flex items-center justify-between gap-2 text-xs transition cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)] no-underline ${
                             isActive
                               ? 'bg-[var(--surface-subtle)] border border-[var(--border-color)] text-[var(--primary-on-white,var(--primary))] font-bold'
                               : 'border border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-subtle)]/60 font-medium'
@@ -118,7 +123,7 @@ export const SettingsSectionNav: React.FC<SettingsSectionNavProps> = ({
                               className="w-2 h-2 rounded-full bg-amber-500 shrink-0"
                             />
                           )}
-                        </button>
+                        </a>
                       </li>
                     );
                   })}

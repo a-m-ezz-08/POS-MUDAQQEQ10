@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { hasPermission } from '../utils/permissions';
 import { PrintHeader } from '../components/ui';
 import { ShortcutBadge } from '../context/KeyboardShortcutsContext';
+import { getHrefForTarget, isPlainLeftClick } from '../config/navigation';
 import {
   Layers,
   Plus,
@@ -404,13 +405,34 @@ export const CategoriesPage: React.FC<CategoriesPageProps> = ({
               </div>
 
               <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
-                <span className="flex items-center gap-1 font-mono">
-                  <Package className="w-3.5 h-3.5 text-slate-400" />
-                  <span>
-                    الأصناف المباشرة: <strong>{node.directItemCount}</strong>
-                    {hasChildren && ` (إجمالي الشجرة: ${node.itemCount || node.directItemCount})`}
+                {onNavigateToItemsWithCategory ? (
+                  <a
+                    href={getHrefForTarget('items', undefined, {
+                      searchParams: { category: node.id }
+                    })}
+                    onClick={(e) => {
+                      if (!isPlainLeftClick(e)) return;
+                      e.preventDefault();
+                      onNavigateToItemsWithCategory(node.id);
+                    }}
+                    className="flex items-center gap-1 font-mono hover:text-[#1678C2] hover:underline transition"
+                    title={`عرض أصناف ${node.name}`}
+                  >
+                    <Package className="w-3.5 h-3.5 text-slate-400" />
+                    <span>
+                      الأصناف المباشرة: <strong>{node.directItemCount}</strong>
+                      {hasChildren && ` (إجمالي الشجرة: ${node.itemCount || node.directItemCount})`}
+                    </span>
+                  </a>
+                ) : (
+                  <span className="flex items-center gap-1 font-mono">
+                    <Package className="w-3.5 h-3.5 text-slate-400" />
+                    <span>
+                      الأصناف المباشرة: <strong>{node.directItemCount}</strong>
+                      {hasChildren && ` (إجمالي الشجرة: ${node.itemCount || node.directItemCount})`}
+                    </span>
                   </span>
-                </span>
+                )}
                 <span>•</span>
                 <span>ترتيب العرض: <strong>{node.displayOrder || 1}</strong></span>
               </div>

@@ -9,6 +9,8 @@ import {
   isGroupVisible,
   isSubItemVisible,
   findGroupForPage,
+  getHrefForTarget,
+  isPlainLeftClick,
   type FeatureModeFlags
 } from '../config/navigation';
 import { hasPermission } from '../utils/permissions';
@@ -419,11 +421,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* زر بدء البيع السريع (نقطة بيع) مثبّت أعلى القائمة أسفل الشعار مباشرة وقبل لوحة التحكم */}
         {canAccessPos && (() => {
           const posShortcutKey = getShortcutDisplayKey('nav.pos');
+          const posHref = getHrefForTarget('pos', undefined, { user, flags: featureFlags });
           return (
             <div className="px-2.5 py-[12px] shrink-0">
-              <button
-                type="button"
-                onClick={() => {
+              <a
+                href={posHref}
+                onClick={(e) => {
+                  if (!isPlainLeftClick(e)) return;
+                  e.preventDefault();
                   if (currentPage === 'pos') {
                     closeFlyout();
                     return;
@@ -437,7 +442,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }
                 }}
                 aria-current={currentPage === 'pos' ? 'page' : undefined}
-                className={`group mudaqqeq-pos-cta w-full h-[52px] min-h-[52px] px-3 rounded-xl bg-gradient-to-r from-[var(--primary)] to-[var(--nav-blue)] hover:opacity-95 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 ${
+                className={`group mudaqqeq-pos-cta w-full h-[52px] min-h-[52px] px-3 rounded-xl bg-gradient-to-r from-[var(--primary)] to-[var(--nav-blue)] hover:opacity-95 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 no-underline ${
                   currentPage === 'pos'
                     ? 'ring-2 ring-[var(--primary)] ring-offset-2 ring-offset-[var(--sidebar-bg)]'
                     : ''
@@ -454,7 +459,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {posShortcutKey}
                   </kbd>
                 )}
-              </button>
+              </a>
             </div>
           );
         })()}
@@ -494,124 +499,161 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 : null;
             const groupShortcutKey = groupShortcutAction ? getShortcutDisplayKey(groupShortcutAction) : null;
 
+            const singleGroupSub = !isDropdown && visibleSubItems.length === 1 ? visibleSubItems[0] : null;
+            const singleGroupHref = singleGroupSub
+              ? getHrefForTarget(singleGroupSub.page, singleGroupSub.tab, { user, flags: featureFlags })
+              : null;
+
+            const groupRowInner = (
+              <>
+                <div className="flex items-center gap-[14px] min-w-0">
+                  {/* مربع الأيقونة 40×40px */}
+                  <span className="mudaqqeq-icon-wrap relative w-[40px] h-[40px] shrink-0">
+                    <span
+                      className="mudaqqeq-icon-box relative w-[40px] h-[40px] rounded-[12px] flex items-center justify-center overflow-hidden"
+                      data-active={isGroupActive ? 'true' : 'false'}
+                    >
+                      {/* لمعة دائرية بيضاء شفافة بحجم المربع مزاحة لأعلى اليسار ليظهر ربعها */}
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute w-[40px] h-[40px] rounded-full -top-[20px] -left-[20px]"
+                        style={{ background: 'rgba(255, 255, 255, 0.20)' }}
+                      />
+                      <GroupIcon
+                        className="mudaqqeq-nav-icon relative z-10"
+                        data-fill={fillMode}
+                      />
+                    </span>
+
+                    {/* علامة صح «مدقق» الصغيرة على القسم المفتوح */}
+                    {isGroupActive && (
+                      <span
+                        aria-hidden="true"
+                        className="mudaqqeq-check-badge absolute w-[19px] h-[19px] rounded-full bg-white flex items-center justify-center z-20"
+                        style={{
+                          bottom: '-4px',
+                          insetInlineEnd: '-4px',
+                          boxShadow: '0 2px 6px rgba(15, 23, 42, 0.18)'
+                        }}
+                      >
+                        <Check
+                          className="w-[11px] h-[11px]"
+                          strokeWidth={3.6}
+                          style={{ color: colors.primary }}
+                        />
+                      </span>
+                    )}
+                  </span>
+
+                  <span className="mudaqqeq-nav-label truncate">
+                    {isRtl ? group.labelAr : group.labelEn}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {!isDropdown && groupShortcutKey && (
+                    <kbd
+                      dir="ltr"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 inline-flex items-center px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-600 text-[10px] font-mono font-bold leading-none shrink-0"
+                    >
+                      {groupShortcutKey}
+                    </kbd>
+                  )}
+                  {isSingleDisabledOffline ? (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-600">
+                      متاح عند رجوع الاتصال
+                    </span>
+                  ) : (
+                    groupBadge && (
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${groupBadge.color}`}
+                      >
+                        {groupBadge.text}
+                      </span>
+                    )
+                  )}
+                  {isDropdown && (
+                    <span className="transition-transform duration-200">
+                      <ChevronDown
+                        className={`w-4 h-4 transition-transform duration-200 ${
+                          isExpanded
+                            ? 'rotate-0 text-[var(--primary)]'
+                            : isRtl
+                            ? 'rotate-90 text-[var(--sidebar-text-muted)]'
+                            : '-rotate-90 text-[var(--sidebar-text-muted)]'
+                        }`}
+                      />
+                    </span>
+                  )}
+                </div>
+              </>
+            );
+
             return (
               <div key={group.id} className="rounded-[14px]">
-                {/* زر المجموعة الرئيسي */}
-                <button
-                  type="button"
-                  disabled={isSingleDisabledOffline}
-                  title={isSingleDisabledOffline ? 'متاح عند رجوع الاتصال' : undefined}
-                  data-group-id={group.id}
-                  data-active={isGroupActive ? 'true' : 'false'}
-                  data-expanded={isExpanded ? 'true' : 'false'}
-                  data-dir={isRtl ? 'rtl' : 'ltr'}
-                  style={rowStyle}
-                  onClick={(e) => {
-                    if (isSingleDisabledOffline) return;
-                    if (isDropdown) {
-                      handleToggleGroup(group.id, e, contextType);
-                    } else if (visibleSubItems.length === 1) {
+                {/* عنصر المجموعة الرئيسي: رابط حقيقي للمجموعات المباشرة وزر تبديل للقوائم المنسدلة */}
+                {singleGroupSub && singleGroupHref ? (
+                  <a
+                    href={singleGroupHref}
+                    aria-disabled={isSingleDisabledOffline ? 'true' : undefined}
+                    aria-current={isGroupActive ? 'page' : undefined}
+                    title={isSingleDisabledOffline ? 'متاح عند رجوع الاتصال' : undefined}
+                    data-group-id={group.id}
+                    data-active={isGroupActive ? 'true' : 'false'}
+                    data-expanded="false"
+                    data-dir={isRtl ? 'rtl' : 'ltr'}
+                    style={rowStyle}
+                    onClick={(e) => {
+                      if (isSingleDisabledOffline) {
+                        e.preventDefault();
+                        onNavigate(singleGroupSub.page, singleGroupSub.tab);
+                        return;
+                      }
+                      if (!isPlainLeftClick(e)) return;
+                      e.preventDefault();
                       setActiveGroupId(null);
-                      // إذا تم الضغط على أيقونة POS نفسها ونحن في صفحة POS
-                      if (currentPage === 'pos' && visibleSubItems[0].page === 'pos') {
+                      if (currentPage === 'pos' && singleGroupSub.page === 'pos') {
                         closeFlyout();
                         return;
                       }
                       if (isFlyout) {
                         closeFlyout();
                       }
-                      onNavigate(visibleSubItems[0].page, visibleSubItems[0].tab);
+                      onNavigate(singleGroupSub.page, singleGroupSub.tab);
                       if (isMobile && onCloseMobile) {
                         onCloseMobile();
                       }
-                    }
-                  }}
-                  className={`group mudaqqeq-nav-row w-full flex items-center justify-between text-start ${
-                    isSingleDisabledOffline ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                  }`}
-                  aria-expanded={isDropdown ? isExpanded : undefined}
-                >
-                  <div className="flex items-center gap-[14px] min-w-0">
-                    {/* مربع الأيقونة 40×40px */}
-                    <span className="mudaqqeq-icon-wrap relative w-[40px] h-[40px] shrink-0">
-                      <span
-                        className="mudaqqeq-icon-box relative w-[40px] h-[40px] rounded-[12px] flex items-center justify-center overflow-hidden"
-                        data-active={isGroupActive ? 'true' : 'false'}
-                      >
-                        {/* لمعة دائرية بيضاء شفافة بحجم المربع مزاحة لأعلى اليسار ليظهر ربعها */}
-                        <span
-                          aria-hidden="true"
-                          className="pointer-events-none absolute w-[40px] h-[40px] rounded-full -top-[20px] -left-[20px]"
-                          style={{ background: 'rgba(255, 255, 255, 0.20)' }}
-                        />
-                        <GroupIcon
-                          className="mudaqqeq-nav-icon relative z-10"
-                          data-fill={fillMode}
-                        />
-                      </span>
-
-                      {/* علامة صح «مدقق» الصغيرة على القسم المفتوح */}
-                      {isGroupActive && (
-                        <span
-                          aria-hidden="true"
-                          className="mudaqqeq-check-badge absolute w-[19px] h-[19px] rounded-full bg-white flex items-center justify-center z-20"
-                          style={{
-                            bottom: '-4px',
-                            insetInlineEnd: '-4px',
-                            boxShadow: '0 2px 6px rgba(15, 23, 42, 0.18)'
-                          }}
-                        >
-                          <Check
-                            className="w-[11px] h-[11px]"
-                            strokeWidth={3.6}
-                            style={{ color: colors.primary }}
-                          />
-                        </span>
-                      )}
-                    </span>
-
-                    <span className="mudaqqeq-nav-label truncate">
-                      {isRtl ? group.labelAr : group.labelEn}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {!isDropdown && groupShortcutKey && (
-                      <kbd
-                        dir="ltr"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 inline-flex items-center px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-600 text-[10px] font-mono font-bold leading-none shrink-0"
-                      >
-                        {groupShortcutKey}
-                      </kbd>
-                    )}
-                    {isSingleDisabledOffline ? (
-                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-600">
-                        متاح عند رجوع الاتصال
-                      </span>
-                    ) : (
-                      groupBadge && (
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${groupBadge.color}`}
-                        >
-                          {groupBadge.text}
-                        </span>
-                      )
-                    )}
-                    {isDropdown && (
-                      <span className="transition-transform duration-200">
-                        <ChevronDown
-                          className={`w-4 h-4 transition-transform duration-200 ${
-                            isExpanded
-                              ? 'rotate-0 text-[var(--primary)]'
-                              : isRtl
-                              ? 'rotate-90 text-[var(--sidebar-text-muted)]'
-                              : '-rotate-90 text-[var(--sidebar-text-muted)]'
-                          }`}
-                        />
-                      </span>
-                    )}
-                  </div>
-                </button>
+                    }}
+                    className={`group mudaqqeq-nav-row w-full flex items-center justify-between text-start no-underline ${
+                      isSingleDisabledOffline ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                    }`}
+                  >
+                    {groupRowInner}
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={isSingleDisabledOffline}
+                    title={isSingleDisabledOffline ? 'متاح عند رجوع الاتصال' : undefined}
+                    data-group-id={group.id}
+                    data-active={isGroupActive ? 'true' : 'false'}
+                    data-expanded={isExpanded ? 'true' : 'false'}
+                    data-dir={isRtl ? 'rtl' : 'ltr'}
+                    style={rowStyle}
+                    onClick={(e) => {
+                      if (isSingleDisabledOffline) return;
+                      if (isDropdown) {
+                        handleToggleGroup(group.id, e, contextType);
+                      }
+                    }}
+                    className={`group mudaqqeq-nav-row w-full flex items-center justify-between text-start ${
+                      isSingleDisabledOffline ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                    }`}
+                    aria-expanded={isDropdown ? isExpanded : undefined}
+                  >
+                    {groupRowInner}
+                  </button>
+                )}
 
                 {/* العناصر الفرعية داخل المجموعة المنسدلة */}
                 {isDropdown && (
@@ -664,14 +706,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             );
                           }
 
+                          const subHref = getHrefForTarget(sub.page, sub.tab, { user, flags: featureFlags });
                           return (
-                            <button
+                            <a
                               key={sub.id}
-                              type="button"
-                              disabled={isSubDisabledOffline}
+                              href={subHref}
+                              aria-disabled={isSubDisabledOffline ? 'true' : undefined}
+                              aria-current={isSubActive ? 'page' : undefined}
                               title={isSubDisabledOffline ? 'متاح عند رجوع الاتصال' : undefined}
-                              onClick={() => {
-                                if (isSubDisabledOffline) return;
+                              onClick={(e) => {
+                                if (isSubDisabledOffline) {
+                                  e.preventDefault();
+                                  onNavigate(sub.page, sub.tab);
+                                  return;
+                                }
+                                if (!isPlainLeftClick(e)) return;
+                                e.preventDefault();
                                 if (currentPage === 'pos' && sub.page === 'pos') {
                                   closeFlyout();
                                   return;
@@ -684,7 +734,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                   onCloseMobile();
                                 }
                               }}
-                              className={`group w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-150 text-start ${
+                              className={`group w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-150 text-start no-underline ${
                                 isSubDisabledOffline
                                   ? 'text-slate-400 opacity-60 cursor-not-allowed'
                                   : isSubActive
@@ -728,7 +778,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                   )
                                 )}
                               </div>
-                            </button>
+                            </a>
                           );
                         })}
                       </div>
@@ -773,9 +823,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* زر نقطة بيع السريع (أيقونة 44×44px فقط) مثبّت أعلى القائمة المطوية مباشرة قبل الأقسام */}
       {canAccessPos && (
         <div className="mb-2.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
+          <a
+            href={getHrefForTarget('pos', undefined, { user, flags: featureFlags })}
+            onClick={(e) => {
+              if (!isPlainLeftClick(e)) return;
+              e.preventDefault();
               if (currentPage === 'pos') {
                 if (isPosFlyoutOpen) {
                   closeFlyout();
@@ -789,14 +841,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title={isRtl ? 'نقطة بيع' : 'POS'}
             aria-label={isRtl ? 'نقطة بيع' : 'POS'}
             aria-current={currentPage === 'pos' ? 'page' : undefined}
-            className={`w-11 h-11 rounded-xl bg-gradient-to-r from-[var(--primary)] to-[var(--nav-blue)] hover:opacity-95 text-white flex items-center justify-center shadow-md transition-all cursor-pointer active:scale-95 ${
+            className={`w-11 h-11 rounded-xl bg-gradient-to-r from-[var(--primary)] to-[var(--nav-blue)] hover:opacity-95 text-white flex items-center justify-center shadow-md transition-all cursor-pointer active:scale-95 no-underline ${
               currentPage === 'pos'
                 ? 'ring-2 ring-[var(--primary)] ring-offset-2 ring-offset-[var(--sidebar-bg)]'
                 : ''
             }`}
           >
             <ShoppingCart className="w-5 h-5" />
-          </button>
+          </a>
         </div>
       )}
 
@@ -826,83 +878,127 @@ export const Sidebar: React.FC<SidebarProps> = ({
             OFFLINE_DISABLED_PAGES.has(visibleSubItems[0].page);
           const isCollapsedPopoverOpen = collapsedPopover?.groupId === group.id;
 
-          return (
-            <div key={group.id} className="relative flex justify-center w-full">
-              <button
-                type="button"
-                data-collapsed-group-btn={group.id}
-                disabled={collapsedSingleDisabledOffline}
-                data-active={isGroupActive ? 'true' : 'false'}
-                aria-expanded={visibleSubItems.length > 1 ? isCollapsedPopoverOpen : undefined}
-                style={collapsedStyle}
-                onClick={(e) => {
-                  if (collapsedSingleDisabledOffline) return;
-                  if (currentPage === 'pos') {
-                    if (isPosFlyoutOpen && activeGroupId === group.id) {
-                      closeFlyout();
-                      return;
-                    }
-                    openFlyout(group.id);
-                    return;
-                  }
-                  if (visibleSubItems.length > 1) {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const clampedTop = Math.max(
-                      12,
-                      Math.min(toLayoutPx(rect.top), toLayoutPx(typeof window !== 'undefined' ? window.innerHeight : 720) - 300)
-                    );
-                    setCollapsedPopover((prev) =>
-                      prev?.groupId === group.id ? null : { groupId: group.id, top: clampedTop }
-                    );
-                  } else if (visibleSubItems.length === 1) {
-                    setCollapsedPopover(null);
-                    onNavigate(visibleSubItems[0].page, visibleSubItems[0].tab);
-                  }
-                }}
-                title={collapsedSingleDisabledOffline ? 'متاح عند رجوع الاتصال' : label}
-                aria-label={label}
-                className={`mudaqqeq-collapsed-btn relative rounded-[12px] flex items-center justify-center transition-all ${
-                  collapsedSingleDisabledOffline ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                }`}
-              >
-                <span className="mudaqqeq-icon-wrap relative w-[40px] h-[40px]">
+          const collapsedSingleSub = visibleSubItems.length === 1 ? visibleSubItems[0] : null;
+          const collapsedSingleHref = collapsedSingleSub
+            ? getHrefForTarget(collapsedSingleSub.page, collapsedSingleSub.tab, { user, flags: featureFlags })
+            : null;
+          const collapsedIconInner = (
+            <>
+              <span className="mudaqqeq-icon-wrap relative w-[40px] h-[40px]">
+                <span
+                  className="mudaqqeq-icon-box relative w-[40px] h-[40px] rounded-[12px] flex items-center justify-center overflow-hidden"
+                  data-active={isGroupActive ? 'true' : 'false'}
+                >
                   <span
-                    className="mudaqqeq-icon-box relative w-[40px] h-[40px] rounded-[12px] flex items-center justify-center overflow-hidden"
-                    data-active={isGroupActive ? 'true' : 'false'}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute w-[40px] h-[40px] rounded-full -top-[20px] -left-[20px]"
+                    style={{ background: 'rgba(255, 255, 255, 0.20)' }}
+                  />
+                  <GroupIcon
+                    className="mudaqqeq-nav-icon relative z-10"
+                    data-fill={fillMode}
+                  />
+                </span>
+
+                {isGroupActive && (
+                  <span
+                    aria-hidden="true"
+                    className="mudaqqeq-check-badge absolute w-[19px] h-[19px] rounded-full bg-white flex items-center justify-center z-20"
+                    style={{
+                      bottom: '-4px',
+                      insetInlineEnd: '-4px',
+                      boxShadow: '0 2px 6px rgba(15, 23, 42, 0.18)'
+                    }}
                   >
-                    <span
-                      aria-hidden="true"
-                      className="pointer-events-none absolute w-[40px] h-[40px] rounded-full -top-[20px] -left-[20px]"
-                      style={{ background: 'rgba(255, 255, 255, 0.20)' }}
-                    />
-                    <GroupIcon
-                      className="mudaqqeq-nav-icon relative z-10"
-                      data-fill={fillMode}
+                    <Check
+                      className="w-[11px] h-[11px]"
+                      strokeWidth={3.6}
+                      style={{ color: colors.primary }}
                     />
                   </span>
-
-                  {isGroupActive && (
-                    <span
-                      aria-hidden="true"
-                      className="mudaqqeq-check-badge absolute w-[19px] h-[19px] rounded-full bg-white flex items-center justify-center z-20"
-                      style={{
-                        bottom: '-4px',
-                        insetInlineEnd: '-4px',
-                        boxShadow: '0 2px 6px rgba(15, 23, 42, 0.18)'
-                      }}
-                    >
-                      <Check
-                        className="w-[11px] h-[11px]"
-                        strokeWidth={3.6}
-                        style={{ color: colors.primary }}
-                      />
-                    </span>
-                  )}
-                </span>
-                {groupBadge && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white z-30" />
                 )}
-              </button>
+              </span>
+              {groupBadge && (
+                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white z-30" />
+              )}
+            </>
+          );
+
+          return (
+            <div key={group.id} className="relative flex justify-center w-full">
+              {collapsedSingleSub && collapsedSingleHref ? (
+                <a
+                  href={collapsedSingleHref}
+                  data-collapsed-group-btn={group.id}
+                  aria-disabled={collapsedSingleDisabledOffline ? 'true' : undefined}
+                  aria-current={isGroupActive ? 'page' : undefined}
+                  data-active={isGroupActive ? 'true' : 'false'}
+                  style={collapsedStyle}
+                  onClick={(e) => {
+                    if (collapsedSingleDisabledOffline) {
+                      e.preventDefault();
+                      onNavigate(collapsedSingleSub.page, collapsedSingleSub.tab);
+                      return;
+                    }
+                    if (!isPlainLeftClick(e)) return;
+                    e.preventDefault();
+                    if (currentPage === 'pos') {
+                      if (isPosFlyoutOpen && activeGroupId === group.id) {
+                        closeFlyout();
+                        return;
+                      }
+                      openFlyout(group.id);
+                      return;
+                    }
+                    setCollapsedPopover(null);
+                    onNavigate(collapsedSingleSub.page, collapsedSingleSub.tab);
+                  }}
+                  title={collapsedSingleDisabledOffline ? 'متاح عند رجوع الاتصال' : label}
+                  aria-label={label}
+                  className={`mudaqqeq-collapsed-btn relative rounded-[12px] flex items-center justify-center transition-all no-underline ${
+                    collapsedSingleDisabledOffline ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                  }`}
+                >
+                  {collapsedIconInner}
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  data-collapsed-group-btn={group.id}
+                  disabled={collapsedSingleDisabledOffline}
+                  data-active={isGroupActive ? 'true' : 'false'}
+                  aria-expanded={visibleSubItems.length > 1 ? isCollapsedPopoverOpen : undefined}
+                  style={collapsedStyle}
+                  onClick={(e) => {
+                    if (collapsedSingleDisabledOffline) return;
+                    if (currentPage === 'pos') {
+                      if (isPosFlyoutOpen && activeGroupId === group.id) {
+                        closeFlyout();
+                        return;
+                      }
+                      openFlyout(group.id);
+                      return;
+                    }
+                    if (visibleSubItems.length > 1) {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const clampedTop = Math.max(
+                        12,
+                        Math.min(toLayoutPx(rect.top), toLayoutPx(typeof window !== 'undefined' ? window.innerHeight : 720) - 300)
+                      );
+                      setCollapsedPopover((prev) =>
+                        prev?.groupId === group.id ? null : { groupId: group.id, top: clampedTop }
+                      );
+                    }
+                  }}
+                  title={collapsedSingleDisabledOffline ? 'متاح عند رجوع الاتصال' : label}
+                  aria-label={label}
+                  className={`mudaqqeq-collapsed-btn relative rounded-[12px] flex items-center justify-center transition-all ${
+                    collapsedSingleDisabledOffline ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                  }`}
+                >
+                  {collapsedIconInner}
+                </button>
+              )}
             </div>
           );
         })}
@@ -1093,17 +1189,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }
 
               return (
-                <button
+                <a
                   key={sub.id}
-                  type="button"
-                  disabled={isSubDisabledOffline}
+                  href={getHrefForTarget(sub.page, sub.tab, { user, flags: featureFlags })}
+                  aria-disabled={isSubDisabledOffline ? 'true' : undefined}
+                  aria-current={isSubActive ? 'page' : undefined}
                   title={isSubDisabledOffline ? 'متاح عند رجوع الاتصال' : undefined}
-                  onClick={() => {
-                    if (isSubDisabledOffline) return;
+                  onClick={(e) => {
+                    if (isSubDisabledOffline) {
+                      e.preventDefault();
+                      onNavigate(sub.page, sub.tab);
+                      return;
+                    }
+                    if (!isPlainLeftClick(e)) return;
+                    e.preventDefault();
                     setCollapsedPopover(null);
                     onNavigate(sub.page, sub.tab);
                   }}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition text-start ${
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition text-start no-underline ${
                     isSubDisabledOffline
                       ? 'text-slate-400 opacity-60 cursor-not-allowed'
                       : isSubActive
@@ -1126,7 +1229,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {subBadge.text}
                     </span>
                   )}
-                </button>
+                </a>
               );
             })}
           </div>

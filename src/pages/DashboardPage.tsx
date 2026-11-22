@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { hasPermission } from '../utils/permissions';
 import { DashboardAurora } from '../components/DashboardAurora';
 import { PrintHeader } from '../components/ui';
+import { getHrefForTarget, getHrefForItemRoute, isPlainLeftClick } from '../config/navigation';
 import {
   TrendingUp,
   ShoppingCart,
@@ -32,7 +33,11 @@ interface DashboardPageProps {
   userRole: UserRole;
   user?: UserAccount | null;
   appTheme?: AppTheme;
-  onNavigate: (page: PageType, tab?: string) => void;
+  onNavigate: (
+    page: PageType,
+    tab?: string,
+    options?: { searchParams?: Record<string, string | undefined> }
+  ) => void;
   onOpenProductModal: (item?: Item) => void;
   onOpenInvoiceDetails: (inv: Invoice) => void;
   platformsEnabled?: boolean;
@@ -173,13 +178,17 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <Database className="w-4 h-4 text-amber-700 shrink-0" />
             <span>مرّ أكثر من 7 أيام على آخر نسخة احتياطية</span>
           </div>
-          <button
-            type="button"
-            onClick={() => onNavigate('settings', 'backup')}
-            className="min-h-[40px] px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition self-start sm:self-auto cursor-pointer shrink-0"
+          <a
+            href={getHrefForTarget('settings', 'backup')}
+            onClick={(e) => {
+              if (!isPlainLeftClick(e)) return;
+              e.preventDefault();
+              onNavigate('settings', 'backup');
+            }}
+            className="min-h-[40px] inline-flex items-center px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition self-start sm:self-auto cursor-pointer shrink-0"
           >
             الانتقال لقسم النسخ الاحتياطي
-          </button>
+          </a>
         </div>
       )}
       {isAuroraTheme ? (
@@ -229,22 +238,32 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
 
           <div className="no-print flex flex-wrap items-center gap-3">
-            <button
-              onClick={() => onNavigate('pos')}
+            <a
+              href={getHrefForTarget('pos')}
+              onClick={(e) => {
+                if (!isPlainLeftClick(e)) return;
+                e.preventDefault();
+                onNavigate('pos');
+              }}
               className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-white text-[#164E72] hover:bg-sky-50 font-extrabold text-sm shadow-md transition-all active:scale-95 cursor-pointer min-h-[48px]"
             >
               <ShoppingCart className="w-5 h-5 text-[#1678C2]" />
               <span>فاتورة بيع جديدة</span>
-            </button>
+            </a>
 
             {isManager && (
-              <button
-                onClick={() => onOpenProductModal()}
+              <a
+                href={getHrefForItemRoute('new')}
+                onClick={(e) => {
+                  if (!isPlainLeftClick(e)) return;
+                  e.preventDefault();
+                  onOpenProductModal();
+                }}
                 className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-[#164E72]/80 hover:bg-[#164E72] text-white font-bold text-sm border border-white/20 transition cursor-pointer min-h-[48px]"
               >
                 <PlusCircle className="w-4 h-4 text-[#42BDE5]" />
                 <span>إضافة صنف</span>
-              </button>
+              </a>
             )}
           </div>
         </div>
@@ -268,12 +287,17 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={() => onNavigate('items', 'LOW_STOCK')}
-            className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition self-start sm:self-auto cursor-pointer shrink-0"
+          <a
+            href={getHrefForTarget('items', 'LOW_STOCK')}
+            onClick={(e) => {
+              if (!isPlainLeftClick(e)) return;
+              e.preventDefault();
+              onNavigate('items', 'LOW_STOCK');
+            }}
+            className="inline-flex items-center px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition self-start sm:self-auto cursor-pointer shrink-0"
           >
             معاينة الأصناف
-          </button>
+          </a>
         </div>
       )}
 
@@ -443,17 +467,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 const isNegative = (cb.currentBalance || 0) < 0;
                 const isInactive = cb.status === 'inactive' || (cb.status as any) === 'موقوفة';
 
-                return (
-                  <div
-                    key={cb.id}
-                    onClick={canViewCashboxPage ? () => onNavigate('cashboxes', 'TRANSACTIONS') : undefined}
-                    className={`bg-white p-4 sm:p-5 rounded-2xl border transition relative flex flex-col justify-between ${
-                      canViewCashboxPage
-                        ? 'cursor-pointer hover:border-[#1678C2] hover:shadow-md active:scale-[0.99] border-slate-200/90'
-                        : 'cursor-default border-slate-200/70'
-                    } ${isInactive ? 'bg-slate-50/70 opacity-80' : ''}`}
-                    title={canViewCashboxPage ? `عرض حركات ${cb.name}` : cb.name}
-                  >
+                const cardBody = (
+                  <>
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="p-2.5 rounded-xl bg-slate-100 text-slate-700 shrink-0">
                         <IconComponent className="w-5 h-5" />
@@ -492,6 +507,44 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                         )}
                       </div>
                     </div>
+                  </>
+                );
+
+                const cardClasses = `bg-white p-4 sm:p-5 rounded-2xl border transition relative flex flex-col justify-between ${
+                  canViewCashboxPage
+                    ? 'cursor-pointer hover:border-[#1678C2] hover:shadow-md active:scale-[0.99] border-slate-200/90'
+                    : 'cursor-default border-slate-200/70'
+                } ${isInactive ? 'bg-slate-50/70 opacity-80' : ''}`;
+
+                if (canViewCashboxPage) {
+                  return (
+                    <a
+                      key={cb.id}
+                      href={getHrefForTarget('cashboxes', 'TRANSACTIONS', {
+                        searchParams: { cashboxId: cb.id }
+                      })}
+                      onClick={(e) => {
+                        if (!isPlainLeftClick(e)) return;
+                        e.preventDefault();
+                        onNavigate('cashboxes', 'TRANSACTIONS', {
+                          searchParams: { cashboxId: cb.id }
+                        });
+                      }}
+                      className={cardClasses}
+                      title={`عرض حركات ${cb.name}`}
+                    >
+                      {cardBody}
+                    </a>
+                  );
+                }
+
+                return (
+                  <div
+                    key={cb.id}
+                    className={cardClasses}
+                    title={cb.name}
+                  >
+                    {cardBody}
                   </div>
                 );
               })}
@@ -508,13 +561,18 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             <h2 className="text-base font-extrabold text-slate-900">أداء مبيعات المنصات</h2>
             <p className="text-xs text-slate-500 mt-0.5">تفصيل الإيرادات ونسب الخصم لكل منصة</p>
           </div>
-          <button
-            onClick={() => onNavigate('platforms', 'platforms')}
+          <a
+            href={getHrefForTarget('platforms', 'platforms')}
+            onClick={(e) => {
+              if (!isPlainLeftClick(e)) return;
+              e.preventDefault();
+              onNavigate('platforms', 'platforms');
+            }}
             className="no-print flex items-center gap-1 text-xs font-bold text-cyan-700 hover:text-cyan-800 cursor-pointer"
           >
             <span>إدارة المنصات</span>
             <ChevronLeft className="w-4 h-4" />
-          </button>
+          </a>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-5">

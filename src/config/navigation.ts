@@ -1188,6 +1188,8 @@ export interface ResolvedNavigationRoute {
   page: PageType;
   tab?: string;
   path: string;
+  search?: string;
+  hash?: string;
   itemRoute?: { mode: 'new' } | { mode: 'edit'; itemId: string } | null;
   redirected: boolean;
 }
@@ -1433,25 +1435,147 @@ export function normalizeNavigationTarget(
   };
 }
 
+const CONTEXTUAL_QUERY_KEYS = new Set([
+  'search',
+  'supplierId',
+  'customerId',
+  'cashboxId',
+  'platformId',
+  'category',
+  'itemId',
+  'operationType'
+]);
+
+function extractContextualQueryString(searchParams: URLSearchParams): string {
+  const kept = new URLSearchParams();
+  CONTEXTUAL_QUERY_KEYS.forEach((key) => {
+    const val = searchParams.get(key);
+    if (val !== null && val.trim() !== '') {
+      kept.set(key, val);
+    }
+  });
+  const str = kept.toString();
+  return str ? `?${str}` : '';
+}
+
+function buildUrlFromParts(basePath: string, search?: string, hash?: string): string {
+  const cleanHash = hash ? (hash.startsWith('#') ? hash : `#${hash}`) : '';
+  const cleanSearch = search ? (search.startsWith('?') ? search : `?${search}`) : '';
+  const hashIdx = basePath.indexOf('#');
+  const pathWithoutHash = hashIdx >= 0 ? basePath.slice(0, hashIdx) : basePath;
+  const existingHash = hashIdx >= 0 ? basePath.slice(hashIdx) : '';
+  return `${pathWithoutHash}${cleanSearch}${cleanHash || existingHash}`;
+}
+
+export interface HrefBuildOptions {
+  searchParams?: Record<string, string | undefined | null>;
+  hash?: string;
+  user?: UserAccount | null;
+  flags?: FeatureModeFlags;
+}
+
 /**
- * تحليل مسار المتصفح (Pathname) وإرجاع الصفحة والتبويب والمسار القانوني،
- * مع دعم المسارات القديمة ومسارات الأصناف المستقلة (/items/new و /items/:id)
+ * بناء مسار href حقيقي ومعتمد لأي صفحة/تبويب داخلي مع دعم معاملات الاستعلام والهاش
+ */
+export function getHrefForTarget(
+  page: PageType,
+  tab?: string,
+  options?: HrefBuildOptions
+): string {
+  const normalized = normalizeNavigationTarget(page, tab, options?.user, options?.flags);
+  const qs = new URLSearchParams();
+  if (options?.searchParams) {
+    Object.entries(options.searchParams).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && String(val).trim() !== '') {
+        qs.set(key, String(val));
+      }
+    });
+  }
+  const searchStr = qs.toString() ? `?${qs.toString()}` : '';
+  return buildUrlFromParts(normalized.path, searchStr, options?.hash);
+}
+
+/**
+ * بناء مسار href حقيقي لشاشة الصنف (/items/new أو /items/:id)
+ */
+export function getHrefForItemRoute(
+  mode: 'new' | 'edit',
+  itemId?: string
+): string {
+  if (mode === 'new' || !itemId) {
+    return '/items/new';
+  }
+  return `/items/${encodeURIComponent(itemId)}`;
+}
+
+/**
+ * التحقق مما إذا كانت النقرة نقرة زر أيسر عادية دون Ctrl/Cmd/Shift/Alt
+ * حتى تعمل نقرات Ctrl/Cmd وزر الفأرة الأوسط و"فتح في تبويب جديد" عبر المتصفح بشكل طبيعي
+ */
+export function isPlainLeftClick(e: {
+  button: number;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+}): boolean {
+  return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+}
+
+/**
+ * تحليل مسار المتصفح (Pathname + Query + Hash) وإرجاع الصفحة والتبويب والمسار القانوني،
+ * مع دعم المسارات القديمة ومسارات الأصناف المستقلة (/items/new و /items/:id) وروابط الأقسام السياقية
  */
 export function resolvePathToTarget(
-  rawPathname: string,
+  rawPathnameOrUrl: string,
   user?: UserAccount | null,
   flags?: FeatureModeFlags
 ): ResolvedNavigationRoute {
-  const trimmed = (rawPathname || '/').replace(/\/+$/, '') || '/';
+  let rawPathname = '/';
+  let rawSearchParams = new URLSearchParams();
+  let rawHash = '';
+  try {
+    const parsed = new URL(rawPathnameOrUrl || '/', 'http://local');
+    rawPathname = parsed.pathname || '/';
+    rawSearchParams = parsed.searchParams;
+    rawHash = parsed.hash || '';
+  } catch {
+    rawPathname = rawPathnameOrUrl || '/';
+  }
+
+  const trimmed = rawPathname.replace(/\/+$/, '') || '/';
+  const contextualSearch = extractContextualQueryString(rawSearchParams);
 
   if (isVisitorScreenOnlyUser(user)) {
     return {
       page: 'visitor',
       tab: undefined,
       path: '/visitor',
+      search: '',
+      hash: '',
       itemRoute: null,
       redirected: trimmed !== '/visitor'
     };
+  }
+
+  // 0. دعم ?section=<SettingsSectionId> على /settings
+  if (trimmed === '/settings') {
+    const sectionParam = rawSearchParams.get('section')?.trim();
+    if (sectionParam) {
+      const targetTab = sectionParam === 'backup' ? 'integration' : sectionParam;
+      const hashToApply = sectionParam === 'backup' ? '#backup' : rawHash;
+      const normalized = normalizeNavigationTarget('settings', targetTab, user, flags);
+      const finalPath = buildUrlFromParts(normalized.path, '', hashToApply);
+      return {
+        page: normalized.page,
+        tab: normalized.tab,
+        path: finalPath,
+        search: '',
+        hash: finalPath.includes('#') ? `#${finalPath.split('#')[1]}` : '',
+        itemRoute: null,
+        redirected: true
+      };
+    }
   }
 
   // 1. المسارات القديمة تُحوَّل تلقائياً لأول عنصر مسموح للمستخدم في الصفحة أو الوضع الحالي
@@ -1464,13 +1588,17 @@ export function resolvePathToTarget(
       !normalized.path.includes('#') &&
       normalized.page === requestedPage &&
       (!legacyEntry.tab || normalized.tab === legacyEntry.tab);
-    const finalPath = shouldAppendHash ? `${normalized.path}${legacyEntry.hash}` : normalized.path;
+    const effectiveHash = shouldAppendHash ? legacyEntry.hash! : rawHash;
+    const keepContextual = normalized.page === requestedPage ? contextualSearch : '';
+    const finalPath = buildUrlFromParts(normalized.path, keepContextual, effectiveHash);
     return {
       page: normalized.page,
       tab: normalized.tab,
       path: finalPath,
+      search: keepContextual,
+      hash: finalPath.includes('#') ? `#${finalPath.split('#')[1]}` : '',
       itemRoute: null,
-      redirected: finalPath !== trimmed
+      redirected: finalPath !== `${trimmed}${rawSearchParams.toString() ? `?${rawSearchParams.toString()}` : ''}${rawHash}`
     };
   }
 
@@ -1478,10 +1606,13 @@ export function resolvePathToTarget(
   const matchedSub = ALL_ROUTE_SUB_ITEMS.find((s) => s.path === trimmed);
   if (matchedSub) {
     if (isPageAllowedByFeatureModes(matchedSub.page, matchedSub.tab, flags)) {
+      const finalPath = buildUrlFromParts(matchedSub.path, contextualSearch, rawHash);
       return {
         page: matchedSub.page,
         tab: matchedSub.tab,
-        path: matchedSub.path,
+        path: finalPath,
+        search: contextualSearch,
+        hash: rawHash,
         itemRoute: null,
         redirected: false
       };
@@ -1491,6 +1622,8 @@ export function resolvePathToTarget(
       page: redirectedTarget.page,
       tab: redirectedTarget.tab,
       path: redirectedTarget.path,
+      search: '',
+      hash: redirectedTarget.path.includes('#') ? `#${redirectedTarget.path.split('#')[1]}` : '',
       itemRoute: null,
       redirected: true
     };
@@ -1504,14 +1637,19 @@ export function resolvePathToTarget(
         page: redirectedTarget.page,
         tab: redirectedTarget.tab,
         path: redirectedTarget.path,
+        search: '',
+        hash: '',
         itemRoute: null,
         redirected: true
       };
     }
+    const finalPath = buildUrlFromParts('/items/new', contextualSearch, rawHash);
     return {
       page: 'items',
       tab: 'ALL',
-      path: '/items/new',
+      path: finalPath,
+      search: contextualSearch,
+      hash: rawHash,
       itemRoute: { mode: 'new' },
       redirected: false
     };
@@ -1524,15 +1662,21 @@ export function resolvePathToTarget(
         page: redirectedTarget.page,
         tab: redirectedTarget.tab,
         path: redirectedTarget.path,
+        search: '',
+        hash: '',
         itemRoute: null,
         redirected: true
       };
     }
     const itemId = decodeURIComponent(trimmed.slice('/items/'.length));
+    const baseItemPath = `/items/${encodeURIComponent(itemId)}`;
+    const finalPath = buildUrlFromParts(baseItemPath, contextualSearch, rawHash);
     return {
       page: 'items',
       tab: 'ALL',
-      path: `/items/${encodeURIComponent(itemId)}`,
+      path: finalPath,
+      search: contextualSearch,
+      hash: rawHash,
       itemRoute: { mode: 'edit', itemId },
       redirected: false
     };
@@ -1545,8 +1689,11 @@ export function resolvePathToTarget(
     page: fallback.page,
     tab: fallback.tab,
     path: fallback.path,
+    search: '',
+    hash: '',
     itemRoute: null,
     redirected: trimmed !== fallback.path
   };
 }
+
 

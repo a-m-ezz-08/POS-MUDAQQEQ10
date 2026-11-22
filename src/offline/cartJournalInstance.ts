@@ -1,7 +1,9 @@
 import { CartJournalClient, type JournalStorage } from './cartJournal';
 import { api } from '../api/client';
+import { getOrInitTabId, subscribeTabIdChange } from '../utils/tabSession';
 
 let instance: CartJournalClient | null = null;
+let tabSyncBound = false;
 
 function createFallbackStorage(): JournalStorage {
   const map = new Map<string, string>();
@@ -25,9 +27,16 @@ export function getCartJournal(): CartJournalClient {
 
     instance = new CartJournalClient({
       storage,
+      ownerTabId: getOrInitTabId(),
       send: (payload, options) => api.sendCartJournalEvents(payload, options.keepalive)
     });
     instance.start();
+    if (!tabSyncBound && typeof window !== 'undefined') {
+      tabSyncBound = true;
+      subscribeTabIdChange((newTabId) => {
+        instance?.setOwnerTabId(newTabId);
+      });
+    }
   }
   return instance;
 }

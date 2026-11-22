@@ -8,6 +8,7 @@ import {
   ArrowRight,
   AlertCircle
 } from 'lucide-react';
+import { getHrefForTarget, isPlainLeftClick } from '../config/navigation';
 
 interface ItemImportModalProps {
   existingItems?: Item[];
@@ -101,14 +102,20 @@ export const ItemImportModal: React.FC<ItemImportModalProps> = ({
             </button>
 
             {onOpenBulkImport && (
-              <button
-                type="button"
-                onClick={onOpenBulkImport}
+              <a
+                href={getHrefForTarget('bulk_edit_excel', 'add_items', {
+                  searchParams: { operationType: 'add_items' }
+                })}
+                onClick={(e) => {
+                  if (!isPlainLeftClick(e)) return;
+                  e.preventDefault();
+                  onOpenBulkImport();
+                }}
                 className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold shadow-xs transition cursor-pointer"
               >
                 <ArrowRight className="w-4 h-4" />
                 <span>الانتقال لصفحة «إضافة أصناف»</span>
-              </button>
+              </a>
             )}
           </div>
         </div>

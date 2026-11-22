@@ -25,6 +25,7 @@ import {
   OUTBOX_REJECTED_REVIEW_STATUS,
 } from '../offline/db';
 import { useOfflineMode } from '../hooks/useOfflineMode';
+import { useOfflineLock } from '../offline/offlineLock';
 import { hasPermission } from '../utils/permissions';
 import {
   PageSurface,
@@ -58,6 +59,11 @@ export const SyncPage: React.FC<SyncPageProps> = ({
   onNavigate,
 }) => {
   const { isOffline, isSyncingOutbox, syncNow, deviceId, deviceName } = useOfflineMode();
+  const {
+    hasOwnership: hasOfflineLock,
+    reason: offlineLockReason,
+    retryAcquireLock: recheckOfflineLock,
+  } = useOfflineLock();
 
   const canManageOffline =
     user.role === 'designer' ||
@@ -165,6 +171,15 @@ export const SyncPage: React.FC<SyncPageProps> = ({
       });
       return;
     }
+    if (!hasOfflineLock) {
+      setStatusBanner({
+        type: 'error',
+        text:
+          offlineLockReason ||
+          'القاعدة المحلية مقفولة حاليًا لتبويب آخر على هذا المتصفح. أغلق التبويب الآخر أو أعد فحص القفل قبل المزامنة.',
+      });
+      return;
+    }
     try {
       const res = await syncNow();
       await loadLocalOutboxState();
@@ -242,6 +257,16 @@ export const SyncPage: React.FC<SyncPageProps> = ({
       setStatusBanner({
         type: 'error',
         text: 'يرجى الاتصال بالإنترنت أولًا لاستيراد الملف الاحتياطي ورفع عملياته إلى الخادم.',
+      });
+      return;
+    }
+
+    if (!hasOfflineLock) {
+      setStatusBanner({
+        type: 'error',
+        text:
+          offlineLockReason ||
+          'القاعدة المحلية مقفولة حاليًا لتبويب آخر على هذا المتصفح. أغلق التبويب الآخر أو أعد فحص القفل قبل استيراد الملف.',
       });
       return;
     }
@@ -448,7 +473,7 @@ export const SyncPage: React.FC<SyncPageProps> = ({
           <button
             type="button"
             onClick={handleSyncNow}
-            disabled={isSyncingOutbox || isOffline}
+            disabled={isSyncingOutbox || isOffline || !hasOfflineLock}
             className="min-h-[44px] inline-flex items-center gap-2 px-4 rounded-lg bg-[#1668B2] hover:bg-[#125491] text-white text-xs font-bold transition disabled:opacity-50 cursor-pointer"
           >
             <RefreshCw className={`w-4 h-4 ${isSyncingOutbox ? 'animate-spin' : ''}`} />
@@ -468,7 +493,7 @@ export const SyncPage: React.FC<SyncPageProps> = ({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isImporting}
+            disabled={isImporting || !hasOfflineLock}
             className="min-h-[44px] inline-flex items-center gap-2 px-4 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] text-[var(--text-primary)] text-xs font-bold transition disabled:opacity-50 cursor-pointer"
           >
             <Upload className="w-4 h-4" />
@@ -484,6 +509,31 @@ export const SyncPage: React.FC<SyncPageProps> = ({
         </>
       }
     >
+      {/* تنبيه ملكية القفل المحلي للمزامنة من تبويب واحد */}
+      {!hasOfflineLock && (
+        <div
+          role="alert"
+          data-testid="sync-offline-lock-banner"
+          className="mb-3 p-3 rounded-xl border border-amber-300 bg-amber-50 text-amber-900 text-xs font-bold flex flex-wrap items-center justify-between gap-2"
+        >
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+            <span>
+              {offlineLockReason ||
+                'القاعدة المحلية نشطة في تبويب آخر على هذا المتصفح؛ المزامنة واستيراد الملفات متاحان في التبويب المالك للقفل فقط.'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              void recheckOfflineLock();
+            }}
+            className="min-h-[38px] px-3 py-1 rounded-lg bg-[#1668B2] hover:bg-[#125491] text-white text-xs font-bold cursor-pointer"
+          >
+            إعادة فحص القفل
+          </button>
+        </div>
+      )}
       {/* حالة مجلد النسخ الاحتياطي التلقائي */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[var(--border-subtle)] text-xs">
         <div className="leading-relaxed">
@@ -590,7 +640,7 @@ export const SyncPage: React.FC<SyncPageProps> = ({
                 <button
                   type="button"
                   onClick={handleSyncNow}
-                  disabled={isSyncingOutbox || isOffline || pendingCount === 0}
+                  disabled={isSyncingOutbox || isOffline || pendingCount === 0 || !hasOfflineLock}
                   className="min-h-[44px] inline-flex items-center gap-1.5 px-3.5 rounded-lg bg-[#1668B2] hover:bg-[#125491] text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isSyncingOutbox ? 'animate-spin' : ''}`} />

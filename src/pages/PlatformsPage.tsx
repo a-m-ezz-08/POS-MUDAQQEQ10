@@ -25,6 +25,7 @@ import {
   FORM_CONTROL_BASE_CLASS,
 } from '../components/ui';
 import { ShortcutBadge } from '../context/KeyboardShortcutsContext';
+import { getHrefForTarget, isPlainLeftClick } from '../config/navigation';
 
 type PlatformTab = 'platforms' | 'shippingCosts' | 'platformReport' | 'creditCollection';
 
@@ -37,7 +38,12 @@ interface PlatformsPageProps {
   onSavePlatform: (plt: Partial<Platform> & { name: string }) => Promise<void>;
   onSaveCost: (cost: ItemPlatformCost) => Promise<void>;
   initialTab?: PlatformTab;
-  onNavigate?: (page: PageType, tab?: string) => void;
+  initialPlatformId?: string;
+  onNavigate?: (
+    page: PageType,
+    tab?: string,
+    options?: { searchParams?: Record<string, string | undefined>; replace?: boolean }
+  ) => void;
 }
 
 export const PlatformsPage: React.FC<PlatformsPageProps> = ({
@@ -49,6 +55,7 @@ export const PlatformsPage: React.FC<PlatformsPageProps> = ({
   onSavePlatform,
   onSaveCost,
   initialTab,
+  initialPlatformId,
   onNavigate
 }) => {
   const isManager = userRole === 'manager' || userRole === 'designer';
@@ -59,13 +66,21 @@ export const PlatformsPage: React.FC<PlatformsPageProps> = ({
     ? user.role === 'designer' || hasPermission(user, 'invoices.collect_credit') || hasPermission(user, 'invoices.view')
     : true;
   const [activeTab, setActiveTab] = useState<'platforms' | 'shippingCosts' | 'platformReport' | 'creditCollection'>(initialTab || 'platforms');
-  const [selectedReportPlatformId, setSelectedReportPlatformId] = useState<string>(platforms[0]?.id || '');
+  const [selectedReportPlatformId, setSelectedReportPlatformId] = useState<string>(
+    () => initialPlatformId || platforms[0]?.id || ''
+  );
 
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab);
     }
   }, [initialTab]);
+
+  useEffect(() => {
+    if (initialPlatformId) {
+      setSelectedReportPlatformId(initialPlatformId);
+    }
+  }, [initialPlatformId]);
 
   // Platform Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -350,32 +365,50 @@ export const PlatformsPage: React.FC<PlatformsPageProps> = ({
                       <td className={`no-print text-center ${COMPACT_TABLE_NUM_CLASS}`}>
                         <div className="inline-flex items-center gap-1.5">
                           {canCollectCredit && (
-                            <button
-                              type="button"
-                              onClick={() => {
+                            <a
+                              href={getHrefForTarget('platforms', 'creditCollection', {
+                                searchParams: { platformId: plt.id }
+                              })}
+                              onClick={(e) => {
+                                if (!isPlainLeftClick(e)) return;
+                                e.preventDefault();
                                 setSelectedReportPlatformId(plt.id);
-                                if (onNavigate) onNavigate('platforms', 'creditCollection');
-                                else setActiveTab('creditCollection');
+                                if (onNavigate) {
+                                  onNavigate('platforms', 'creditCollection', {
+                                    searchParams: { platformId: plt.id }
+                                  });
+                                } else {
+                                  setActiveTab('creditCollection');
+                                }
                               }}
                               className="min-h-[44px] inline-flex items-center gap-1 px-2.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-stock-low text-xs font-bold transition cursor-pointer"
                             >
                               <Wallet className="w-3.5 h-3.5" />
                               <span>تحصيل</span>
-                            </button>
+                            </a>
                           )}
                           {canViewPlatformReport && (
-                            <button
-                              type="button"
-                              onClick={() => {
+                            <a
+                              href={getHrefForTarget('platforms', 'platformReport', {
+                                searchParams: { platformId: plt.id }
+                              })}
+                              onClick={(e) => {
+                                if (!isPlainLeftClick(e)) return;
+                                e.preventDefault();
                                 setSelectedReportPlatformId(plt.id);
-                                if (onNavigate) onNavigate('platforms', 'platformReport');
-                                else setActiveTab('platformReport');
+                                if (onNavigate) {
+                                  onNavigate('platforms', 'platformReport', {
+                                    searchParams: { platformId: plt.id }
+                                  });
+                                } else {
+                                  setActiveTab('platformReport');
+                                }
                               }}
                               className="min-h-[44px] inline-flex items-center gap-1 px-2.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--surface-subtle)] ui-money-sale text-xs font-bold transition cursor-pointer"
                             >
                               <BarChart3 className="w-3.5 h-3.5" />
                               <span>التقرير</span>
-                            </button>
+                            </a>
                           )}
                           {isManager && (
                             <>

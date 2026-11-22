@@ -106,6 +106,15 @@ import {
   InactivityTimeoutMinutes
 } from '../types';
 import type { LabelSettings } from '../utils/labelPrint';
+import {
+  BoundSessionIdentity,
+  LAST_HUMAN_ACTIVITY_STORAGE_KEY,
+  computeSessionTag,
+  postTabSyncMessage,
+  readSharedHumanActivity,
+  subscribeTabSyncMessages,
+  writeSharedHumanActivity
+} from '../utils/tabSession';
 
 function toCairoDateBoundaryIso(dateStr: string, bound: 'start' | 'end'): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
@@ -249,35 +258,137 @@ export function notifyManualBalanceUpdated(): void {
 }
 
 let sessionExpiredHandler: ((message?: string) => void) | null = null;
+let sessionMismatchHandler: ((message: string) => void) | null = null;
+let boundSessionIdentity: BoundSessionIdentity | null = null;
 
 export function setOnSessionExpired(handler: (message?: string) => void) {
   sessionExpiredHandler = handler;
 }
 
+export function setOnSessionMismatch(handler: ((message: string) => void) | null) {
+  sessionMismatchHandler = handler;
+}
+
+export function setBoundSessionIdentity(identity: BoundSessionIdentity | null): void {
+  boundSessionIdentity = identity && identity.userId && identity.sessionTag ? identity : null;
+}
+
+export function getBoundSessionIdentity(): BoundSessionIdentity | null {
+  return boundSessionIdentity;
+}
+
 let lastDomUserInteractionAt = Date.now();
 let lastForegroundApiActivitySentAt = 0;
+let lastSharedActivityPersistAt = 0;
 
 export function getLastUserInteractionAt(): number {
-  return lastDomUserInteractionAt;
+  const sharedAt = readSharedHumanActivity(boundSessionIdentity);
+  return sharedAt > lastDomUserInteractionAt ? sharedAt : lastDomUserInteractionAt;
 }
 
 export function getLastForegroundApiActivitySentAt(): number {
   return lastForegroundApiActivitySentAt;
 }
 
+function broadcastHumanInteraction(at: number): void {
+  if (!boundSessionIdentity) return;
+  if (at - lastSharedActivityPersistAt < 1000) return;
+  lastSharedActivityPersistAt = at;
+  writeSharedHumanActivity(at, boundSessionIdentity);
+  postTabSyncMessage({
+    type: 'USER_ACTIVITY',
+    userId: boundSessionIdentity.userId,
+    sessionTag: boundSessionIdentity.sessionTag,
+    at
+  });
+}
+
 export function recordUserInteraction(): void {
-  lastDomUserInteractionAt = Date.now();
+  const now = Date.now();
+  lastDomUserInteractionAt = now;
+  broadcastHumanInteraction(now);
+}
+
+/**
+ * التحقق قبل أي طلب مصادَق عليه من تطابق هوية الجلسة المخزنة مع الجلسة المربوطة بالتبويب
+ * حتى لا يرسل تبويب قديم طلبًا برمز مستخدم آخر بعد تبديل الحساب أو الخروج في تبويب آخر.
+ */
+export function assertBoundSessionMatches(): void {
+  if (!boundSessionIdentity) return;
+  if (typeof localStorage === 'undefined') return;
+  const currentToken = localStorage.getItem('pos_token');
+  const rawUser = localStorage.getItem('pos_user');
+  let currentUserId = '';
+  if (rawUser) {
+    try {
+      const parsed = JSON.parse(rawUser);
+      currentUserId = String(parsed?.id || '');
+    } catch (_) {}
+  }
+
+  if (!currentToken || !currentUserId) {
+    const msg = 'انتهت الجلسة في تبويب آخر؛ يرجى تسجيل الدخول مجددًا.';
+    if (sessionMismatchHandler) {
+      sessionMismatchHandler(msg);
+    } else if (sessionExpiredHandler) {
+      sessionExpiredHandler(msg);
+    }
+    const err = new Error(msg);
+    (err as any).status = 401;
+    (err as any).code = 'SESSION_MISMATCH';
+    throw err;
+  }
+
+  const currentTag = computeSessionTag(currentToken, currentUserId);
+  if (
+    currentUserId !== boundSessionIdentity.userId ||
+    currentTag !== boundSessionIdentity.sessionTag
+  ) {
+    const msg = 'تم تبديل الحساب أو الجلسة في تبويب آخر؛ لحماية البيانات تم إيقاف الطلب من هذا التبويب. أعد تحميل الصفحة للمتابعة بالجلسة الحالية.';
+    if (sessionMismatchHandler) {
+      sessionMismatchHandler(msg);
+    } else if (sessionExpiredHandler) {
+      sessionExpiredHandler(msg);
+    }
+    const err = new Error(msg);
+    (err as any).status = 401;
+    (err as any).code = 'SESSION_MISMATCH';
+    throw err;
+  }
 }
 
 if (typeof window !== 'undefined') {
   const onDomInteraction = () => {
-    lastDomUserInteractionAt = Date.now();
+    const now = Date.now();
+    lastDomUserInteractionAt = now;
+    broadcastHumanInteraction(now);
   };
   window.addEventListener('pointerdown', onDomInteraction, { passive: true });
   window.addEventListener('keydown', onDomInteraction, { passive: true });
   window.addEventListener('touchstart', onDomInteraction, { passive: true });
   window.addEventListener('wheel', onDomInteraction, { passive: true });
   window.addEventListener('click', onDomInteraction, { passive: true });
+
+  window.addEventListener('storage', (e) => {
+    if (e.key === LAST_HUMAN_ACTIVITY_STORAGE_KEY && e.newValue) {
+      const sharedAt = readSharedHumanActivity(boundSessionIdentity);
+      if (sharedAt > lastDomUserInteractionAt) {
+        lastDomUserInteractionAt = sharedAt;
+      }
+    }
+  });
+
+  subscribeTabSyncMessages((msg) => {
+    if (msg.type === 'USER_ACTIVITY' && boundSessionIdentity) {
+      if (
+        msg.userId === boundSessionIdentity.userId &&
+        msg.sessionTag === boundSessionIdentity.sessionTag &&
+        msg.at > lastDomUserInteractionAt
+      ) {
+        lastDomUserInteractionAt = msg.at;
+      }
+    }
+  });
 }
 
 function getClientDeviceInfo(): { deviceName: string; deviceId: string } {
@@ -367,6 +478,18 @@ async function runWithTimeout<T>(
 }
 
 async function request<T>(endpoint: string, options: RequestInit & { background?: boolean } = {}): Promise<T> {
+  const isUnboundAuthOrHealthEndpoint =
+    endpoint.startsWith('/api/auth/login') ||
+    endpoint.startsWith('/api/auth/logout') ||
+    endpoint.startsWith('/api/auth/setup-status') ||
+    endpoint.startsWith('/api/auth/setup-designer-local') ||
+    endpoint.startsWith('/api/health') ||
+    endpoint.startsWith('/api/database/public-status');
+
+  if (!isUnboundAuthOrHealthEndpoint) {
+    assertBoundSessionMatches();
+  }
+
   const token = getAuthToken();
   const { background, ...fetchOptions } = options;
   const headers: Record<string, string> = {
@@ -396,8 +519,13 @@ async function request<T>(endpoint: string, options: RequestInit & { background?
     headers['X-User-Activity'] = '0';
   } else {
     const now = Date.now();
-    const isRecentUserInteraction = now - lastDomUserInteractionAt < 60_000;
-    const isMutation = Boolean(fetchOptions.method && fetchOptions.method !== 'GET' && fetchOptions.method !== 'HEAD');
+    const isRecentUserInteraction = now - getLastUserInteractionAt() < 60_000;
+    const isMutation = Boolean(
+      fetchOptions.method &&
+      fetchOptions.method !== 'GET' &&
+      fetchOptions.method !== 'HEAD' &&
+      endpoint !== '/api/auth/activity'
+    );
     if (isRecentUserInteraction || isMutation) {
       headers['X-User-Activity'] = '1';
       lastForegroundApiActivitySentAt = now;
@@ -562,6 +690,7 @@ export const api = {
   },
 
   async getDatabaseSetupSql(): Promise<string> {
+    assertBoundSessionMatches();
     const token = getAuthToken();
     const headers: Record<string, string> = {};
     if (token) {
@@ -611,6 +740,7 @@ export const api = {
   },
 
   async exportBackup(): Promise<{ blob: Blob; fileName: string }> {
+    assertBoundSessionMatches();
     const token = getAuthToken();
     const headers: Record<string, string> = {};
     if (token) {
@@ -997,6 +1127,7 @@ export const api = {
   },
 
   async exportItemsExcel(): Promise<{ blob: Blob; fileName: string }> {
+    assertBoundSessionMatches();
     const token = getAuthToken();
     const headers: Record<string, string> = {};
     if (token) {
@@ -1059,6 +1190,7 @@ export const api = {
   },
 
   async downloadBulkEditExcelTemplate(operationType: BulkEditPriceOperationType): Promise<{ blob: Blob; fileName: string }> {
+    assertBoundSessionMatches();
     const token = getAuthToken();
     const headers: Record<string, string> = {};
     if (token) {
@@ -1160,6 +1292,7 @@ export const api = {
     fileName?: string;
     rows: BulkEditExcelPreviewRow[];
   }): Promise<{ blob: Blob; fileName: string }> {
+    assertBoundSessionMatches();
     const token = getAuthToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
@@ -2309,6 +2442,7 @@ export const api = {
   },
 
   async collectCreditInvoices(payload: CollectCreditPayload): Promise<CollectCreditResult> {
+    assertBoundSessionMatches();
     const token = getAuthToken();
     const headers: Record<string, string> = {
       'Accept': 'application/json',
@@ -2351,6 +2485,7 @@ export const api = {
     payload: { deviceId: string; events: unknown[] },
     keepalive: boolean
   ): Promise<{ lastSeq: number }> {
+    assertBoundSessionMatches();
     const token = getAuthToken();
     if (!token) {
       throw new Error('لا توجد جلسة نشطة');
@@ -2739,6 +2874,7 @@ export const api = {
   },
 
   async settleDelivery(payload: DeliverySettlePayload): Promise<DeliverySettleResponse> {
+    assertBoundSessionMatches();
     const token = getAuthToken();
     const headers: Record<string, string> = {
       'Accept': 'application/json',
@@ -2834,6 +2970,7 @@ export const api = {
   async createDeliveryDriverPayout(
     payload: DeliveryPayoutPayload
   ): Promise<DeliveryPayoutResponse> {
+    assertBoundSessionMatches();
     const token = getAuthToken();
     const headers: Record<string, string> = {
       'Accept': 'application/json',

@@ -16,6 +16,15 @@ import { useOfflineMode } from '../hooks/useOfflineMode';
 import { useUserWarehouses, fetchAllWarehouseStockMap } from '../hooks/useUserWarehouses';
 import { loadOfflineSnapshot } from '../offline/db';
 import { getCartJournal } from '../offline/cartJournalInstance';
+import { useOfflineLock, hasOfflineLockOwnership } from '../offline/offlineLock';
+import {
+  getOrInitTabId,
+  subscribeTabIdChange,
+  subscribeTabSyncMessages,
+  tryClaimLegacyPosDraftPrompt,
+  clearLegacyDraftClaim
+} from '../utils/tabSession';
+import { getHrefForTarget, isPlainLeftClick } from '../config/navigation';
 import {
   ShoppingCart,
   Search,
@@ -181,7 +190,12 @@ function getPosUserKey(user?: UserAccount | null): string {
   return String(user?.id || user?.username || user?.phone || 'anonymous').trim() || 'anonymous';
 }
 
-function getPosDraftStorageKey(user?: UserAccount | null): string {
+function getPosDraftStorageKey(user?: UserAccount | null, tabId?: string): string {
+  const userKey = getPosUserKey(user);
+  return tabId ? `pos_open_invoice_draft_${userKey}__tab_${tabId}` : `pos_open_invoice_draft_${userKey}`;
+}
+
+function getLegacyPosDraftStorageKey(user?: UserAccount | null): string {
   return `pos_open_invoice_draft_${getPosUserKey(user)}`;
 }
 
@@ -1125,9 +1139,44 @@ export const POSPage: React.FC<POSPageProps> = ({
   const idempotencyKeyRef = useRef<string>(generateIdempotencyKey());
   const skipPlatformSyncForIdRef = useRef<string | null>(null);
 
-  const draftStorageKey = useMemo(() => getPosDraftStorageKey(user), [user?.id, user?.username, user?.phone]);
+  const [tabId, setTabId] = useState<string>(() => getOrInitTabId());
+  useEffect(() => subscribeTabIdChange((nextTabId) => setTabId(nextTabId)), []);
+
+  const {
+    hasOwnership: hasOfflineLock,
+    reason: offlineLockReason,
+    retryAcquireLock: recheckOfflineLock
+  } = useOfflineLock();
+
+  const userKey = useMemo(() => getPosUserKey(user), [user?.id, user?.username, user?.phone]);
+  const draftStorageKey = useMemo(() => getPosDraftStorageKey(user, tabId), [user, tabId]);
+  const legacyDraftStorageKey = useMemo(() => getLegacyPosDraftStorageKey(user), [user]);
   const [pendingDraftPrompt, setPendingDraftPrompt] = useState<PosInvoiceDraft | null>(null);
   const [isDraftReady, setIsDraftReady] = useState<boolean>(false);
+  const pendingDraftSourceRef = useRef<'tab' | 'legacy' | null>(null);
+  const lastDraftUserKeyRef = useRef<string>(userKey);
+
+  // تحديث رصيد المخزن المختار عند إتمام فاتورة من تبويب آخر أونلاين دون المساس ببيانات الفاتورة المفتوحة
+  const tabIdRef = useRef(tabId);
+  tabIdRef.current = tabId;
+  const isOfflineRef = useRef(isOffline);
+  isOfflineRef.current = isOffline;
+  const selectedWarehouseIdRef = useRef(selectedWarehouseId);
+  selectedWarehouseIdRef.current = selectedWarehouseId;
+  const loadWarehouseStockRef = useRef(loadWarehouseStock);
+  loadWarehouseStockRef.current = loadWarehouseStock;
+
+  useEffect(() => {
+    return subscribeTabSyncMessages((msg) => {
+      if (msg.type !== 'POS_STOCK_UPDATED') return;
+      if (msg.sourceTabId && msg.sourceTabId === tabIdRef.current) return;
+      if (isOfflineRef.current) return;
+      const currentWhId = selectedWarehouseIdRef.current;
+      if (!currentWhId) return;
+      if (msg.warehouseId && msg.warehouseId !== currentWhId) return;
+      void loadWarehouseStockRef.current(currentWhId);
+    });
+  }, []);
 
   // الأصناف المتاحة للوضع الحالي (في وضع المنصة تُفلتر حسب المنصة المختارة، وفي وضع العميل تظهر كل أصناف المخزن)
   const platformFilteredItems = useMemo(() => {
@@ -1610,6 +1659,13 @@ export const POSPage: React.FC<POSPageProps> = ({
     }
   }, [isOffline, paymentType, creditPartyType, saleMode, effectivePlatformsEnabled]);
 
+  const pendingDraftPromptRef = useRef<PosInvoiceDraft | null>(pendingDraftPrompt);
+  pendingDraftPromptRef.current = pendingDraftPrompt;
+  const activePlatformsRef = useRef<Platform[]>(activePlatforms);
+  activePlatformsRef.current = activePlatforms;
+  const platformsEnabledRef = useRef<boolean | undefined>(platformsEnabled);
+  platformsEnabledRef.current = platformsEnabled;
+
   useEffect(() => {
     const applyDefaultCashbox = (cbs: Cashbox[], assignments?: any[]) => {
       const active = cbs.filter((c: any) => c.status !== 'inactive' && c.status !== 'موقوفة');
@@ -1653,6 +1709,7 @@ export const POSPage: React.FC<POSPageProps> = ({
       return;
     }
 
+    let isCancelled = false;
     Promise.all([
       api.getCashboxes().catch(() => ({ success: false, cashboxes: [] })),
       api.getCustomers().catch(() => ({ success: false, customers: [] })),
@@ -1660,6 +1717,7 @@ export const POSPage: React.FC<POSPageProps> = ({
       api.getSalesRules().catch(() => ({ success: false, rules: undefined })),
       api.getDeliveryConfig().catch(() => null)
     ]).then(([cbRes, custRes, asRes, rulesRes, delivCfg]) => {
+      if (isCancelled) return;
       if (cbRes.success && cbRes.cashboxes && cbRes.cashboxes.length > 0) {
         setCashboxes(cbRes.cashboxes);
         applyDefaultCashbox(cbRes.cashboxes, asRes.assignments);
@@ -1680,22 +1738,25 @@ export const POSPage: React.FC<POSPageProps> = ({
       if (rulesRes.success && rulesRes.rules) {
         setSalesRules(rulesRes.rules);
         writeCachedSalesRules(rulesRes.rules);
-        if (cart.length === 0 && !pendingDraftPrompt) {
+        if (cartRef.current.length === 0 && !pendingDraftPromptRef.current) {
           const nextMode = resolveDefaultSaleMode(
             rulesRes.rules,
             saleModeStorageKey,
-            platformsEnabled !== false &&
+            platformsEnabledRef.current !== false &&
               !rulesRes.rules.salesOnlyMode &&
               rulesRes.rules.platformsEnabled !== false &&
               rulesRes.rules.allowPlatformSale !== false,
             rulesRes.rules.allowDirectSale !== false
           );
           setSaleMode(nextMode);
-          setSelectedPlatformId(resolveDefaultPlatformId(rulesRes.rules, activePlatforms));
+          setSelectedPlatformId(resolveDefaultPlatformId(rulesRes.rules, activePlatformsRef.current));
           setSelectedCustomerId(resolveDefaultCustomerId(rulesRes.rules, nextCusts));
         }
       }
     });
+    return () => {
+      isCancelled = true;
+    };
   }, [user, isOffline]);
 
   // تطبيق الافتراضيات عند جاهزية الشاشة بدون مسودة مفتوحة
@@ -1726,20 +1787,62 @@ export const POSPage: React.FC<POSPageProps> = ({
     resolveDefaultCustomerId
   ]);
 
-  // فحص المسودة المحفوظة عند فتح نقطة البيع لهذا المستخدم
+  // فحص المسودة المحفوظة لهذا التبويب (مع ترحيل آمن للمسودة القديمة المشتركة في تبويب واحد فقط)
   useEffect(() => {
-    setIsDraftReady(false);
-    const saved = readPosDraft(draftStorageKey);
-    if (saved && Array.isArray(saved.cart) && saved.cart.length > 0) {
-      setPendingDraftPrompt(saved);
-    } else {
-      if (saved) {
-        clearPosDraft(draftStorageKey);
-      }
+    const userChanged = lastDraftUserKeyRef.current !== userKey;
+    lastDraftUserKeyRef.current = userKey;
+
+    if (!userChanged && cartRef.current.length > 0) {
+      // عند تدوير tabId لتبويب نشط يحتوي أصنافاً بالفعل، نُبقي الحالة جاهزة لكتابتها في المفتاح الجديد
       setPendingDraftPrompt(null);
       setIsDraftReady(true);
+      return;
     }
-  }, [draftStorageKey]);
+
+    let cancelled = false;
+    setIsDraftReady(false);
+
+    const savedTab = readPosDraft(draftStorageKey);
+    if (savedTab && Array.isArray(savedTab.cart) && savedTab.cart.length > 0) {
+      pendingDraftSourceRef.current = 'tab';
+      setPendingDraftPrompt(savedTab);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (savedTab) {
+      clearPosDraft(draftStorageKey);
+    }
+
+    const savedLegacy = readPosDraft(legacyDraftStorageKey);
+    if (savedLegacy && Array.isArray(savedLegacy.cart) && savedLegacy.cart.length > 0) {
+      void tryClaimLegacyPosDraftPrompt(userKey, tabId).then((claimed) => {
+        if (cancelled) return;
+        if (claimed) {
+          pendingDraftSourceRef.current = 'legacy';
+          setPendingDraftPrompt(savedLegacy);
+        } else {
+          pendingDraftSourceRef.current = null;
+          setPendingDraftPrompt(null);
+          setIsDraftReady(true);
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (savedLegacy) {
+      clearPosDraft(legacyDraftStorageKey);
+    }
+    pendingDraftSourceRef.current = null;
+    setPendingDraftPrompt(null);
+    setIsDraftReady(true);
+    return () => {
+      cancelled = true;
+    };
+  }, [draftStorageKey, legacyDraftStorageKey, userKey, tabId]);
 
   const handleRestoreDraft = () => {
     if (!pendingDraftPrompt) return;
@@ -1845,13 +1948,24 @@ export const POSPage: React.FC<POSPageProps> = ({
     } catch {
       clearPosDraft(draftStorageKey);
     } finally {
+      if (pendingDraftSourceRef.current === 'legacy') {
+        clearPosDraft(legacyDraftStorageKey);
+        clearLegacyDraftClaim(userKey);
+      }
+      pendingDraftSourceRef.current = null;
       setPendingDraftPrompt(null);
       setIsDraftReady(true);
     }
   };
 
   const handleDiscardDraft = () => {
-    clearPosDraft(draftStorageKey);
+    if (pendingDraftSourceRef.current === 'legacy') {
+      clearPosDraft(legacyDraftStorageKey);
+      clearLegacyDraftClaim(userKey);
+    } else {
+      clearPosDraft(draftStorageKey);
+    }
+    pendingDraftSourceRef.current = null;
     idempotencyKeyRef.current = generateIdempotencyKey();
     setPendingDraftPrompt(null);
     setIsDraftReady(true);
@@ -3016,6 +3130,14 @@ export const POSPage: React.FC<POSPageProps> = ({
   const handleCheckout = async (printMode: 'print' | 'no_print' = 'print') => {
     if (isSubmitting || isSubmittingRef.current) return;
 
+    if (isOffline && !hasOfflineLockOwnership()) {
+      setErrorMsg(
+        offlineLockReason ||
+          'الوضع الأوفلاين نشط في تبويب آخر على هذا المتصفح. البيع أوفلاين متاح في تبويب واحد فقط.'
+      );
+      return;
+    }
+
     setPlatformFieldError(false);
     setCustomerFieldError(false);
     setPlatformOrderError(false);
@@ -3799,6 +3921,11 @@ export const POSPage: React.FC<POSPageProps> = ({
               items={platformFilteredItems}
               allowNegativeStockSale={effectiveAllowNegativeStock}
               isOffline={isOffline}
+              offlineWriteBlocked={isOffline && !hasOfflineLock}
+              offlineLockMessage={offlineLockReason}
+              onRetryOfflineLock={() => {
+                void recheckOfflineLock();
+              }}
               warehouses={activeAllowedWarehouses}
               selectedWarehouseId={selectedWarehouseId}
               onSelectWarehouse={handleWarehouseChange}
@@ -4598,21 +4725,33 @@ export const POSPage: React.FC<POSPageProps> = ({
           <span className="text-[11px] mt-0.5">السجل</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => {
-            if (onOpenMobileMenu) {
-              onOpenMobileMenu();
-            } else if (onNavigateMain) {
-              onNavigateMain('dashboard');
-            }
-          }}
-          className="flex flex-col items-center justify-center flex-1 min-h-[46px] px-1 rounded-xl text-sky-100/80 hover:text-white font-semibold transition-colors cursor-pointer"
-          aria-label="العودة للقائمة الرئيسية"
-        >
-          <Menu className="w-5 h-5" />
-          <span className="text-[11px] mt-0.5">القائمة الرئيسية</span>
-        </button>
+        {onOpenMobileMenu ? (
+          <button
+            type="button"
+            onClick={onOpenMobileMenu}
+            className="flex flex-col items-center justify-center flex-1 min-h-[46px] px-1 rounded-xl text-sky-100/80 hover:text-white font-semibold transition-colors cursor-pointer"
+            aria-label="العودة للقائمة الرئيسية"
+          >
+            <Menu className="w-5 h-5" />
+            <span className="text-[11px] mt-0.5">القائمة الرئيسية</span>
+          </button>
+        ) : (
+          <a
+            href={getHrefForTarget('dashboard')}
+            onClick={(e) => {
+              if (!isPlainLeftClick(e)) return;
+              if (onNavigateMain) {
+                e.preventDefault();
+                onNavigateMain('dashboard');
+              }
+            }}
+            className="flex flex-col items-center justify-center flex-1 min-h-[46px] px-1 rounded-xl text-sky-100/80 hover:text-white font-semibold transition-colors cursor-pointer"
+            aria-label="العودة للقائمة الرئيسية"
+          >
+            <Menu className="w-5 h-5" />
+            <span className="text-[11px] mt-0.5">القائمة الرئيسية</span>
+          </a>
+        )}
       </nav>
 
       {/* مودال استكمال أو تجاهل مسودة الفاتورة غير المحفوظة */}
