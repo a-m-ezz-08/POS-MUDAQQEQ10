@@ -27,6 +27,10 @@ export interface SalesRules {
   allowBelowCostSale: boolean;
   /** بيع المنصات دايمًا آجل على المنصة (لا نقدي ولا جزئي ولا آجل على عميل) — على الكل حتى المالك */
   platformAlwaysCredit: boolean;
+  /** السماح بالبيع على منصة (مفتاح مستقل في إعدادات البيع) */
+  allowPlatformSale: boolean;
+  /** السماح بالبيع المباشر للعميل (مفتاح مستقل في إعدادات البيع) */
+  allowDirectSale: boolean;
   /** تفعيل مبيعات ووظائف المنصات (false = إيقاف المنصات مع بقاء البيانات والفواتير التاريخية) */
   platformsEnabled: boolean;
   /** وضع البيع فقط (true = إبقاء البرنامج على البيع المباشر ووحداته الضرورية وإيقاف المنصات) */
@@ -56,6 +60,8 @@ export function defaultSalesRules(): SalesRules {
     allowZeroPriceSale: true,
     allowBelowCostSale: true,
     platformAlwaysCredit: false,
+    allowPlatformSale: true,
+    allowDirectSale: true,
     platformsEnabled: true,
     salesOnlyMode: false,
     updatedAt: '',
@@ -83,6 +89,8 @@ function normalize(value: any, base: SalesRules = defaultSalesRules()): SalesRul
     allowZeroPriceSale: typeof source.allowZeroPriceSale === 'boolean' ? source.allowZeroPriceSale : base.allowZeroPriceSale,
     allowBelowCostSale: typeof source.allowBelowCostSale === 'boolean' ? source.allowBelowCostSale : base.allowBelowCostSale,
     platformAlwaysCredit: typeof source.platformAlwaysCredit === 'boolean' ? source.platformAlwaysCredit : base.platformAlwaysCredit,
+    allowPlatformSale: typeof source.allowPlatformSale === 'boolean' ? source.allowPlatformSale : (base.allowPlatformSale ?? true),
+    allowDirectSale: typeof source.allowDirectSale === 'boolean' ? source.allowDirectSale : (base.allowDirectSale ?? true),
     platformsEnabled,
     salesOnlyMode,
     updatedAt: String(source.updatedAt ?? base.updatedAt ?? ''),
@@ -102,6 +110,14 @@ export function isSalesOnlyMode(): boolean {
   return Boolean(rules.salesOnlyMode);
 }
 
+export function isPlatformSaleAllowed(current: SalesRules = rules): boolean {
+  return current.platformsEnabled !== false && !current.salesOnlyMode && current.allowPlatformSale !== false;
+}
+
+export function isDirectSaleAllowed(current: SalesRules = rules): boolean {
+  return current.allowDirectSale !== false;
+}
+
 /**
  * الإعدادات كما تحتاجها شاشة البيع: لو المنصة أو العميل المحددان حُذفا أو أُوقفا
  * يتحول الاختيار إلى «لازم يختار بإيده» حتى لا تُفتح الشاشة على قيمة غير صالحة.
@@ -109,17 +125,28 @@ export function isSalesOnlyMode(): boolean {
 export function describeSalesRules(context: { platforms: any[]; customers: any[] }) {
   const current = getSalesRules();
   const effectivePlatformsEnabled = current.platformsEnabled !== false && !current.salesOnlyMode;
+  const effectiveAllowPlatformSale = isPlatformSaleAllowed(current);
+  const effectiveAllowDirectSale = isDirectSaleAllowed(current);
   const platform = current.platformSelection === 'fixed' ? context.platforms.find(p => String(p.id) === current.defaultPlatformId) : undefined;
   const customer = current.customerSelection === 'fixed' ? context.customers.find(c => String(c.id) === current.defaultCustomerId) : undefined;
   const defaultPlatformMissing = current.platformSelection === 'fixed' && (!platform || !isActive(platform) || String(platform.name) === DIRECT_SALE_PLATFORM_NAME);
   const defaultCustomerMissing = current.customerSelection === 'fixed' && (!customer || !isActive(customer));
-  const effectiveSaleMode = !effectivePlatformsEnabled && current.defaultSaleMode === 'platform'
-    ? ('direct' as const)
-    : current.defaultSaleMode;
+  let effectiveSaleMode: 'last' | 'direct' | 'platform' = current.defaultSaleMode;
+  if (!effectiveAllowPlatformSale && effectiveAllowDirectSale) {
+    effectiveSaleMode = 'direct';
+  } else if (effectiveAllowPlatformSale && !effectiveAllowDirectSale) {
+    effectiveSaleMode = 'platform';
+  } else if (!effectiveAllowPlatformSale && current.defaultSaleMode === 'platform') {
+    effectiveSaleMode = 'direct';
+  }
   return {
     ...current,
     platformsEnabled: effectivePlatformsEnabled,
     salesOnlyMode: Boolean(current.salesOnlyMode),
+    allowPlatformSale: current.allowPlatformSale !== false,
+    allowDirectSale: current.allowDirectSale !== false,
+    effectiveAllowPlatformSale,
+    effectiveAllowDirectSale,
     effectiveSaleMode,
     defaultPlatformName: platform ? String(platform.name || '') : '',
     defaultCustomerName: customer ? String(customer.name || '') : '',
@@ -144,6 +171,8 @@ export function saveSalesRules(input: unknown, context: { platforms: any[]; cust
     ['allowZeroPriceSale', 'السماح بالبيع بسعر صفر'],
     ['allowBelowCostSale', 'السماح بالبيع بأقل من سعر الشراء'],
     ['platformAlwaysCredit', 'بيع المنصات دايمًا آجل على المنصة'],
+    ['allowPlatformSale', 'السماح بالبيع على منصة'],
+    ['allowDirectSale', 'السماح بالبيع المباشر للعميل'],
     ['platformsEnabled', 'تفعيل مبيعات ووظائف المنصات'],
     ['salesOnlyMode', 'وضع البيع فقط']
   ] as const) {
@@ -153,6 +182,22 @@ export function saveSalesRules(input: unknown, context: { platforms: any[]; cust
   const targetSalesOnly = typeof source.salesOnlyMode === 'boolean' ? source.salesOnlyMode : Boolean(rules.salesOnlyMode);
   if (targetSalesOnly && source.platformsEnabled === true) {
     throw new SalesRulesError('لا يمكن تفعيل مبيعات ووظائف المنصات أثناء تفعيل «وضع البيع فقط»؛ أوقف وضع البيع فقط أولًا.');
+  }
+  const targetRawPlatformsEnabled = typeof source.platformsEnabled === 'boolean' ? source.platformsEnabled : (rules.platformsEnabled ?? true);
+  const targetPlatformsEnabled = targetSalesOnly ? false : targetRawPlatformsEnabled;
+  const currentPlatformsActive = rules.platformsEnabled !== false && !rules.salesOnlyMode;
+  if (
+    !targetPlatformsEnabled &&
+    source.allowPlatformSale === true &&
+    (!currentPlatformsActive ||
+      rules.allowPlatformSale === false ||
+      (source.platformsEnabled === undefined && source.salesOnlyMode === undefined))
+  ) {
+    throw new SalesRulesError(
+      targetSalesOnly
+        ? 'لا يمكن تفعيل «السماح بالبيع على منصة» أثناء تفعيل «وضع البيع فقط».'
+        : 'لا يمكن تفعيل «السماح بالبيع على منصة» أثناء إيقاف مبيعات ووظائف المنصات.'
+    );
   }
 
   const next = normalize(source, rules);
@@ -248,6 +293,48 @@ export function platformPaymentViolation(
   const hasCustomer = Boolean(String(input.customerId ?? '').trim() || String(input.customerName ?? '').trim());
   const party = String(input.creditPartyType || '') || (hasCustomer ? 'customer' : 'platform');
   if (party !== 'platform') return 'بيع المنصات آجل على المنصة فقط حسب إعدادات البيع: لا يمكن تسجيله آجل على عميل';
+  return null;
+}
+
+export interface SaleModeViolation {
+  code: 'PLATFORMS_DISABLED' | 'PLATFORM_SALE_DISABLED' | 'DIRECT_SALE_DISABLED' | 'ALL_SALE_MODES_DISABLED';
+  message: string;
+}
+
+/**
+ * فحص السماح بوضع البيع (بيع على منصة / بيع مباشر للعميل) حسب إعدادات البيع الحالية.
+ */
+export function saleModeViolation(
+  input: { isPlatformSale: boolean },
+  current: SalesRules = rules
+): SaleModeViolation | null {
+  const platformAllowed = isPlatformSaleAllowed(current);
+  const directAllowed = isDirectSaleAllowed(current);
+
+  if (!platformAllowed && !directAllowed) {
+    return {
+      code: 'ALL_SALE_MODES_DISABLED',
+      message: 'البيع على منصة والبيع المباشر للعميل معطلان حاليًا من إعدادات البيع؛ فعّل وضع بيع واحد على الأقل أولًا'
+    };
+  }
+  if (input.isPlatformSale && !platformAllowed) {
+    if (current.platformsEnabled === false || current.salesOnlyMode) {
+      return {
+        code: 'PLATFORMS_DISABLED',
+        message: 'مبيعات ووظائف المنصات معطلة حاليًا من إعدادات النظام؛ لا يمكن تسجيل فواتير منصة'
+      };
+    }
+    return {
+      code: 'PLATFORM_SALE_DISABLED',
+      message: 'البيع على منصة معطّل حاليًا من إعدادات البيع؛ لا يمكن تسجيل فاتورة منصة'
+    };
+  }
+  if (!input.isPlatformSale && !directAllowed) {
+    return {
+      code: 'DIRECT_SALE_DISABLED',
+      message: 'البيع المباشر للعميل معطّل حاليًا من إعدادات البيع؛ لا يمكن تسجيل فاتورة بيع مباشر'
+    };
+  }
   return null;
 }
 

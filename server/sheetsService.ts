@@ -12,7 +12,7 @@ import {
 } from './config.ts';
 import { calculateInvoice } from '../src/shared/invoiceCalc.ts';
 import { normalizeLatestItemFirst } from '../src/shared/latestItemFirst.ts';
-import { priceRuleViolation, partyRuleViolation, platformPaymentViolation, arePlatformsEnabled, describeSalesRules, DIRECT_SALE_PLATFORM_NAME } from './salesRules.ts';
+import { priceRuleViolation, partyRuleViolation, platformPaymentViolation, saleModeViolation, arePlatformsEnabled, describeSalesRules, DIRECT_SALE_PLATFORM_NAME } from './salesRules.ts';
 import { peekInvoiceNumber, commitInvoiceNumber, getInvoiceNumberingSettings, normalizePlatformOrderId, findPlatformOrderDuplicate, MAX_PLATFORM_ORDER_LENGTH } from './invoiceNumbering.ts';
 import { prepareDeliveryPlan, checkPlanTotals, createOrderForInvoice, findOrderForInvoice, findOpenOrderForInvoice, DeliveryError, type DeliveryPlan } from './delivery.ts';
 import {
@@ -12096,12 +12096,60 @@ export async function createInvoice(
   }
 
   // الحساب المحلي الصارم وفق القسم 5 و 9
-  const platform: Platform = memoryPlatforms.find(p => p.name === invoicePayload.platform || p.name === invoicePayload.platformName || p.id === invoicePayload.platformId) || {
-    id: invoicePayload.platformId || 'direct',
-    name: invoicePayload.platform || invoicePayload.platformName || 'البيع المباشر',
+  const rawPlatformId = String(invoicePayload.platformId || '').trim();
+  const rawPlatformName = String(invoicePayload.platform || invoicePayload.platformName || '').trim();
+  const matchedPlatform =
+    rawPlatformId || rawPlatformName
+      ? memoryPlatforms.find(
+          p =>
+            (rawPlatformId && p.id === rawPlatformId) ||
+            (rawPlatformName && p.name === rawPlatformName)
+        )
+      : undefined;
+
+  const isDirectByTarget = matchedPlatform
+    ? matchedPlatform.name === DIRECT_SALE_PLATFORM_NAME
+    : (!rawPlatformId || rawPlatformId === 'direct') &&
+      (!rawPlatformName || rawPlatformName === DIRECT_SALE_PLATFORM_NAME);
+
+  const isPlatformInvoice = !isDirectByTarget || invoicePayload.creditPartyType === 'platform';
+
+  // التحقق من تفعيل وضع البيع المطلوب (بيع على منصة / بيع مباشر) قبل أي خصم مخزون أو ترقيم أو حركة خزنة
+  // ويسري أيضًا عند مزامنة الفواتير الأوفلاين على ضوء الإعدادات الحالية للخادم
+  const modeViolation = saleModeViolation({ isPlatformSale: isPlatformInvoice });
+  if (modeViolation) {
+    return {
+      success: false,
+      statusCode: 403,
+      code: modeViolation.code,
+      error: modeViolation.message
+    };
+  }
+
+  const isPlatformRecordActive = (p: Platform) =>
+    !['inactive', 'موقوف', 'موقوفة', 'معطل', 'معطلة'].includes(String(p?.status ?? ''));
+
+  if (isPlatformInvoice && !isOfflineMode) {
+    if (
+      !matchedPlatform ||
+      matchedPlatform.name === DIRECT_SALE_PLATFORM_NAME ||
+      !isPlatformRecordActive(matchedPlatform)
+    ) {
+      return {
+        success: false,
+        statusCode: 400,
+        code: 'ACTIVE_PLATFORM_REQUIRED',
+        error: 'لا توجد منصة نشطة صالحة مختارة لإتمام البيع على منصة؛ يرجى اختيار منصة نشطة أو تفعيل منصة أولًا'
+      };
+    }
+  }
+
+  const platform: Platform = matchedPlatform || {
+    id: rawPlatformId || 'direct',
+    name: rawPlatformName || DIRECT_SALE_PLATFORM_NAME,
     discountPercentage: Number(invoicePayload.platformDiscountPercentage || 0),
     pickupFee: 0,
-    notes: 'بيع مباشر',
+    notes: isPlatformInvoice ? 'منصة' : 'بيع مباشر',
     status: 'نشطة',
     enableBnpl: Boolean(invoicePayload.bnplEnabled),
     bnplPercentage: Number(invoicePayload.bnplPercentOverride || 0)
@@ -12112,22 +12160,13 @@ export async function createInvoice(
 
   // إعدادات البيع: العميل «لازم يختار بإيده» في البيع المباشر. فواتير الأوفلاين تُقبل وتُعلَّم للمراجعة
   const partyRuleError = partyRuleViolation({
-    isPlatformSale: platform.name !== DIRECT_SALE_PLATFORM_NAME,
+    isPlatformSale: isPlatformInvoice,
     customerId: invoicePayload.customerId,
     customerName: invoicePayload.customerName
   });
   if (partyRuleError) {
     if (!isOfflineMode) return { success: false, code: 'CUSTOMER_REQUIRED', error: partyRuleError };
     addReviewReason('بيع مباشر بدون اختيار عميل');
-  }
-  const isPlatformInvoice = platform.name !== DIRECT_SALE_PLATFORM_NAME;
-  if (isPlatformInvoice && !arePlatformsEnabled()) {
-    return {
-      success: false,
-      statusCode: 403,
-      code: 'PLATFORMS_DISABLED',
-      error: 'مبيعات ووظائف المنصات معطلة حاليًا من إعدادات النظام؛ لا يمكن تسجيل فواتير منصة'
-    };
   }
   // رقم طلب المنصة (اختياري، لفواتير المنصات فقط): التكرار على نفس المنصة ممنوع أو مسموح حسب إعدادات الترقيم
   const platformOrderId = isPlatformInvoice ? normalizePlatformOrderId(invoicePayload.platformOrderId) : '';

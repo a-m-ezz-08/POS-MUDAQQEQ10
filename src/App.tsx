@@ -1705,7 +1705,8 @@ export default function App() {
         fallbackPlatforms: platforms,
         fallbackCustomers: customers,
         taxSettings: config.taxSettings,
-        platformsEnabled: featureFlags.platformsEnabled
+        platformsEnabled: featureFlags.platformsEnabled,
+        salesRules: config.salesRules
       });
 
       setInvoices(prev =>

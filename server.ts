@@ -1361,6 +1361,8 @@ export async function createServerApp(options?: { attachVite?: boolean; persiste
       if (before.allowZeroPriceSale !== saved.allowZeroPriceSale) changes.push(`البيع بسعر صفر: ${saved.allowZeroPriceSale ? 'مسموح' : 'ممنوع'}`);
       if (before.allowBelowCostSale !== saved.allowBelowCostSale) changes.push(`البيع بأقل من سعر الشراء: ${saved.allowBelowCostSale ? 'مسموح' : 'ممنوع'}`);
       if (before.platformAlwaysCredit !== saved.platformAlwaysCredit) changes.push(`بيع المنصات: ${saved.platformAlwaysCredit ? 'دايمًا آجل على المنصة' : 'حسب اختيار الكاشير'}`);
+      if ((before.allowPlatformSale ?? true) !== saved.allowPlatformSale) changes.push(`السماح بالبيع على منصة: ${saved.allowPlatformSale ? 'مفعّل' : 'معطّل'}`);
+      if ((before.allowDirectSale ?? true) !== saved.allowDirectSale) changes.push(`السماح بالبيع المباشر للعميل: ${saved.allowDirectSale ? 'مفعّل' : 'معطّل'}`);
       if ((before.platformsEnabled ?? true) !== saved.platformsEnabled) changes.push(`وظائف المنصات: ${saved.platformsEnabled ? 'مفعّلة' : 'موقوفة'}`);
       if (Boolean(before.salesOnlyMode) !== Boolean(saved.salesOnlyMode)) changes.push(`وضع البيع فقط: ${saved.salesOnlyMode ? 'مفعّل' : 'متوقف'}`);
       recordAuditLog(

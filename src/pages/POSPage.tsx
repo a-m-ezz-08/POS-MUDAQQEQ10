@@ -85,6 +85,8 @@ export const DEFAULT_POS_SALES_RULES: SalesRules = {
   allowZeroPriceSale: true,
   allowBelowCostSale: true,
   platformAlwaysCredit: false,
+  allowPlatformSale: true,
+  allowDirectSale: true,
   updatedAt: '',
   updatedBy: '',
   effectivePlatformSelection: 'first',
@@ -656,10 +658,11 @@ export const POSPage: React.FC<POSPageProps> = ({
 
   const effectivePlatformsEnabled =
     platformsEnabled !== false &&
-    !salesRulesFromConfig?.salesOnlyMode &&
-    salesRulesFromConfig?.platformsEnabled !== false &&
     !salesRules.salesOnlyMode &&
     salesRules.platformsEnabled !== false;
+  const effectiveAllowPlatformSale =
+    effectivePlatformsEnabled && salesRules.allowPlatformSale !== false;
+  const effectiveAllowDirectSale = salesRules.allowDirectSale !== false;
 
   // 1. اختيار منصة نشطة (المنصات الموقوفة محجوبة عن شاشة البيع)
   const activePlatforms = useMemo(() => {
@@ -717,37 +720,80 @@ export const POSPage: React.FC<POSPageProps> = ({
   const denominationsStorageKey = useMemo(() => getPosDenomStorageKey(user), [user?.id, user?.username, user?.phone]);
 
   const resolveDefaultSaleMode = React.useCallback(
-    (rules: SalesRules, storageKey: string, allowPlatforms = effectivePlatformsEnabled): PosSaleMode => {
-      if (!allowPlatforms || rules.salesOnlyMode || rules.platformsEnabled === false) return 'customer';
+    (
+      rules: SalesRules,
+      storageKey: string,
+      allowPlatform = effectiveAllowPlatformSale,
+      allowDirect = effectiveAllowDirectSale
+    ): PosSaleMode => {
+      const ruleAllowsPlatform =
+        allowPlatform &&
+        !rules.salesOnlyMode &&
+        rules.platformsEnabled !== false &&
+        rules.allowPlatformSale !== false;
+      const ruleAllowsDirect = allowDirect && rules.allowDirectSale !== false;
+      if (!ruleAllowsPlatform && ruleAllowsDirect) return 'customer';
+      if (ruleAllowsPlatform && !ruleAllowsDirect) return 'platform';
+      if (!ruleAllowsPlatform && !ruleAllowsDirect) {
+        return rules.defaultSaleMode === 'direct' ? 'customer' : 'platform';
+      }
       if (rules.defaultSaleMode === 'direct') return 'customer';
       if (rules.defaultSaleMode === 'platform') return 'platform';
       return readLastPosSaleMode(storageKey);
     },
-    [effectivePlatformsEnabled]
+    [effectiveAllowPlatformSale, effectiveAllowDirectSale]
   );
 
-  const [saleMode, setSaleMode] = useState<PosSaleMode>(() =>
-    resolveDefaultSaleMode(
-      { ...readCachedSalesRules(), ...(salesRulesFromConfig || {}) },
-      getPosSaleModeStorageKey(user),
+  const [saleMode, setSaleMode] = useState<PosSaleMode>(() => {
+    const initRules: SalesRules = { ...readCachedSalesRules(), ...(salesRulesFromConfig || {}) };
+    const initAllowPlat =
       platformsEnabled !== false &&
-        !salesRulesFromConfig?.salesOnlyMode &&
-        salesRulesFromConfig?.platformsEnabled !== false
-    )
-  );
+      !initRules.salesOnlyMode &&
+      initRules.platformsEnabled !== false &&
+      initRules.allowPlatformSale !== false;
+    const initAllowDirect = initRules.allowDirectSale !== false;
+    return resolveDefaultSaleMode(
+      initRules,
+      getPosSaleModeStorageKey(user),
+      initAllowPlat,
+      initAllowDirect
+    );
+  });
   const [pendingModeSwitch, setPendingModeSwitch] = useState<{
     targetMode: PosSaleMode;
     incompatibleItems: Item[];
   } | null>(null);
 
-  useEffect(() => {
-    setSaleMode(resolveDefaultSaleMode(salesRules, saleModeStorageKey, effectivePlatformsEnabled));
-  }, [saleModeStorageKey, salesRules, effectivePlatformsEnabled, resolveDefaultSaleMode]);
-
   const effectivePlatform = useMemo(
-    () => (effectivePlatformsEnabled && saleMode === 'platform' ? selectedPlatform : undefined),
-    [effectivePlatformsEnabled, saleMode, selectedPlatform]
+    () => (saleMode === 'platform' ? selectedPlatform : undefined),
+    [saleMode, selectedPlatform]
   );
+
+  const saleModeBlockedReason = useMemo(() => {
+    if (!effectiveAllowPlatformSale && !effectiveAllowDirectSale) {
+      return 'البيع على منصة والبيع المباشر للعميل معطلان حاليًا من إعدادات البيع؛ فعّل وضع بيع واحد على الأقل من الإعدادات لإتمام الحفظ.';
+    }
+    if (saleMode === 'platform' && !effectiveAllowPlatformSale) {
+      return !effectivePlatformsEnabled
+        ? 'مبيعات ووظائف المنصات معطلة حاليًا من إعدادات النظام؛ لا يمكن حفظ هذه الفاتورة كبيع منصة. يمكنك تحويلها إلى بيع مباشر للعميل أو إلغاؤها.'
+        : 'البيع على منصة معطّل حاليًا من إعدادات البيع؛ لا يمكن حفظ هذه الفاتورة كبيع منصة. يمكنك تحويلها إلى بيع مباشر للعميل أو إلغاؤها.';
+    }
+    if (saleMode === 'customer' && !effectiveAllowDirectSale) {
+      return 'البيع المباشر للعميل معطّل حاليًا من إعدادات البيع؛ لا يمكن حفظ هذه الفاتورة كبيع مباشر. يمكنك تحويلها إلى بيع على منصة أو إلغاؤها.';
+    }
+    if (saleMode === 'platform' && effectiveAllowPlatformSale && activePlatforms.length === 0) {
+      return !effectiveAllowDirectSale
+        ? 'البيع المباشر معطّل والبيع مقتصر على المنصات حاليًا، ولا توجد أي منصة نشطة متاحة؛ يرجى إضافة أو تفعيل منصة أولًا (لن يتم التحويل تلقائيًا للبيع المباشر).'
+        : 'لا توجد أي منصة نشطة متاحة للبيع على منصة حاليًا؛ يرجى تفعيل منصة أو التبديل إلى البيع المباشر للعميل.';
+    }
+    return null;
+  }, [
+    effectiveAllowPlatformSale,
+    effectiveAllowDirectSale,
+    effectivePlatformsEnabled,
+    saleMode,
+    activePlatforms.length
+  ]);
 
   // مفاتيح تحكم BNPL ونسب الفاتورة المؤقتة (تأخذ القيم الافتراضية من المنصة المختارة)
   const [posBnplEnabled, setPosBnplEnabled] = useState<boolean>(() => Boolean(selectedPlatform?.enableBnpl));
@@ -1017,6 +1063,13 @@ export const POSPage: React.FC<POSPageProps> = ({
   };
 
   const handleClearCart = () => {
+    const nextMode = resolveDefaultSaleMode(
+      salesRules,
+      saleModeStorageKey,
+      effectiveAllowPlatformSale,
+      effectiveAllowDirectSale
+    );
+    setSaleMode(nextMode);
     setCart([]);
     setDeliveryFee(0);
     setNotes('');
@@ -1025,12 +1078,12 @@ export const POSPage: React.FC<POSPageProps> = ({
     resetDeliveryOrderState();
     setIsManualCashOverride(false);
     setPaidAmountInput('0.00');
-    if (saleMode === 'platform' && salesRules.platformAlwaysCredit) {
+    if (nextMode === 'platform' && salesRules.platformAlwaysCredit) {
       setPaymentType('آجل');
       setCreditPartyType('platform');
     } else {
       setPaymentType('نقدي');
-      setCreditPartyType(saleMode === 'platform' ? 'platform' : 'customer');
+      setCreditPartyType(nextMode === 'platform' ? 'platform' : 'customer');
     }
     const nextPlatId = resolveDefaultPlatformId(salesRules, activePlatforms);
     const nextCustId = resolveDefaultCustomerId(salesRules, customers);
@@ -1110,7 +1163,8 @@ export const POSPage: React.FC<POSPageProps> = ({
   };
 
   const handleSaleModeChange = (targetMode: PosSaleMode) => {
-    if (!effectivePlatformsEnabled && targetMode === 'platform') return;
+    if (targetMode === 'platform' && !effectiveAllowPlatformSale) return;
+    if (targetMode === 'customer' && !effectiveAllowDirectSale) return;
     if (targetMode === saleMode) return;
     const incompatible =
       targetMode === 'platform' && selectedPlatform
@@ -1502,22 +1556,43 @@ export const POSPage: React.FC<POSPageProps> = ({
     setShowDirectOnly(false);
   };
 
-  // عند تعطيل المنصات: تثبيت وضع البيع على البيع المباشر وتنظيف حالة المنصة
+  // عند عدم وجود فاتورة أو مسودة مفتوحة: مواءمة وضع البيع مع الأوضاع المسموحة حاليًا فقط
   useEffect(() => {
-    if (effectivePlatformsEnabled) return;
-    if (saleMode !== 'customer') {
+    if (cart.length > 0 || pendingDraftPrompt) return;
+    if (!effectiveAllowPlatformSale && effectiveAllowDirectSale && saleMode !== 'customer') {
       setSaleMode('customer');
+      if (creditPartyType === 'platform') {
+        setCreditPartyType('customer');
+      }
+      if (platformOrderId) {
+        setPlatformOrderId('');
+        setPlatformOrderError(false);
+      }
+      setPendingModeSwitch(null);
+      setPendingPlatformSwitch(null);
+      return;
     }
-    if (creditPartyType === 'platform') {
-      setCreditPartyType('customer');
+    if (effectiveAllowPlatformSale && !effectiveAllowDirectSale && saleMode !== 'platform') {
+      setSaleMode('platform');
+      if (salesRules.platformAlwaysCredit) {
+        setPaymentType('آجل');
+        setCreditPartyType('platform');
+      } else {
+        setCreditPartyType('platform');
+      }
+      setPendingModeSwitch(null);
+      setPendingPlatformSwitch(null);
     }
-    if (platformOrderId) {
-      setPlatformOrderId('');
-      setPlatformOrderError(false);
-    }
-    setPendingModeSwitch(null);
-    setPendingPlatformSwitch(null);
-  }, [effectivePlatformsEnabled, saleMode, creditPartyType, platformOrderId]);
+  }, [
+    cart.length,
+    pendingDraftPrompt,
+    effectiveAllowPlatformSale,
+    effectiveAllowDirectSale,
+    saleMode,
+    creditPartyType,
+    platformOrderId,
+    salesRules.platformAlwaysCredit
+  ]);
 
   // عند انقطاع الاتصال: ضبط نوع الدفع تلقائيًا للمسموح فقط
   useEffect(() => {
@@ -1606,7 +1681,15 @@ export const POSPage: React.FC<POSPageProps> = ({
         setSalesRules(rulesRes.rules);
         writeCachedSalesRules(rulesRes.rules);
         if (cart.length === 0 && !pendingDraftPrompt) {
-          const nextMode = resolveDefaultSaleMode(rulesRes.rules, saleModeStorageKey);
+          const nextMode = resolveDefaultSaleMode(
+            rulesRes.rules,
+            saleModeStorageKey,
+            platformsEnabled !== false &&
+              !rulesRes.rules.salesOnlyMode &&
+              rulesRes.rules.platformsEnabled !== false &&
+              rulesRes.rules.allowPlatformSale !== false,
+            rulesRes.rules.allowDirectSale !== false
+          );
           setSaleMode(nextMode);
           setSelectedPlatformId(resolveDefaultPlatformId(rulesRes.rules, activePlatforms));
           setSelectedCustomerId(resolveDefaultCustomerId(rulesRes.rules, nextCusts));
@@ -1620,7 +1703,14 @@ export const POSPage: React.FC<POSPageProps> = ({
     if (!isDraftReady || pendingDraftPrompt || cart.length > 0) return;
     if (initialDefaultsAppliedRef.current) return;
     initialDefaultsAppliedRef.current = true;
-    setSaleMode(resolveDefaultSaleMode(salesRules, saleModeStorageKey));
+    setSaleMode(
+      resolveDefaultSaleMode(
+        salesRules,
+        saleModeStorageKey,
+        effectiveAllowPlatformSale,
+        effectiveAllowDirectSale
+      )
+    );
     setSelectedPlatformId(resolveDefaultPlatformId(salesRules, activePlatforms));
     setSelectedCustomerId(resolveDefaultCustomerId(salesRules, customers));
   }, [
@@ -1666,13 +1756,14 @@ export const POSPage: React.FC<POSPageProps> = ({
           };
         });
 
-      const restoredMode: PosSaleMode = !effectivePlatformsEnabled
-        ? 'customer'
-        : draft.saleMode === 'customer'
-        ? 'customer'
-        : 'platform';
+      const restoredMode: PosSaleMode = draft.saleMode === 'customer' ? 'customer' : 'platform';
       setSaleMode(restoredMode);
-      writeLastPosSaleMode(saleModeStorageKey, restoredMode);
+      if (
+        (restoredMode === 'platform' && effectiveAllowPlatformSale) ||
+        (restoredMode === 'customer' && effectiveAllowDirectSale)
+      ) {
+        writeLastPosSaleMode(saleModeStorageKey, restoredMode);
+      }
 
       if (
         draft.selectedWarehouseId &&
@@ -1914,8 +2005,14 @@ export const POSPage: React.FC<POSPageProps> = ({
     setErrorMsg(null);
   };
 
-  // تحديث خصم المنصة ونسب BNPL والضرائب عند تبديل المنصة أو وضع البيع أو الإعدادات
+  // تحديث خصم المنصة ونسب BNPL والضرائب عند تبديل المنصة أو وضع البيع أو الإعدادات (مع حماية المسودات المفتوحة في وضع معطّل)
   useEffect(() => {
+    if (
+      (saleMode === 'platform' && !effectiveAllowPlatformSale) ||
+      (saleMode === 'customer' && !effectiveAllowDirectSale)
+    ) {
+      return;
+    }
     setCart(prev => {
       if (prev.length === 0) return prev;
       return prev.map(c => {
@@ -1946,6 +2043,8 @@ export const POSPage: React.FC<POSPageProps> = ({
     });
   }, [
     saleMode,
+    effectiveAllowPlatformSale,
+    effectiveAllowDirectSale,
     selectedPlatformId,
     effectivePlatform,
     costs,
@@ -2929,8 +3028,33 @@ export const POSPage: React.FC<POSPageProps> = ({
       return;
     }
 
-    const isPlatformSale = effectivePlatformsEnabled && saleMode === 'platform';
+    if (!effectiveAllowPlatformSale && !effectiveAllowDirectSale) {
+      setErrorMsg('البيع على منصة والبيع المباشر للعميل معطلان حاليًا من إعدادات البيع؛ فعّل وضع بيع واحد على الأقل أولًا');
+      return;
+    }
+
+    if (saleMode === 'platform' && !effectiveAllowPlatformSale) {
+      setErrorMsg(
+        !effectivePlatformsEnabled
+          ? 'مبيعات ووظائف المنصات معطلة حاليًا من إعدادات النظام؛ لا يمكن حفظ فاتورة منصة'
+          : 'البيع على منصة معطّل حاليًا من إعدادات البيع؛ لا يمكن حفظ فاتورة منصة'
+      );
+      return;
+    }
+
+    if (saleMode === 'customer' && !effectiveAllowDirectSale) {
+      setErrorMsg('البيع المباشر للعميل معطّل حاليًا من إعدادات البيع؛ لا يمكن حفظ فاتورة بيع مباشر');
+      return;
+    }
+
+    const isPlatformSale = saleMode === 'platform';
     const effectiveCreditPartyType: 'customer' | 'platform' = isPlatformSale ? 'platform' : 'customer';
+
+    if (isPlatformSale && activePlatforms.length === 0) {
+      setPlatformFieldError(true);
+      setErrorMsg('لا توجد أي منصة نشطة متاحة لإتمام البيع على منصة؛ يرجى إضافة أو تفعيل منصة أولًا');
+      return;
+    }
 
     if (!isPlatformSale && isDeliveryEnabled && isOffline) {
       setErrorMsg('إنشاء فاتورة توصيل متاح عند رجوع الاتصال فقط');
@@ -3665,7 +3789,10 @@ export const POSPage: React.FC<POSPageProps> = ({
           >
             <PosInvoicePanel
               platformsEnabled={effectivePlatformsEnabled}
-              saleMode={effectivePlatformsEnabled ? saleMode : 'customer'}
+              allowPlatformSale={effectiveAllowPlatformSale}
+              allowDirectSale={effectiveAllowDirectSale}
+              saleMode={saleMode}
+              saleModeBlockedReason={saleModeBlockedReason}
               onSaleModeChange={handleSaleModeChange}
               denominationsStorageKey={denominationsStorageKey}
               cart={cart}
@@ -3820,9 +3947,9 @@ export const POSPage: React.FC<POSPageProps> = ({
                 if (t === 'آجل') {
                   setIsManualCashOverride(false);
                   setPaidAmountInput('0.00');
-                  if (effectivePlatformsEnabled && (saleMode === 'platform' || isOffline)) {
+                  if (effectiveAllowPlatformSale && (saleMode === 'platform' || isOffline)) {
                     setCreditPartyType('platform');
-                  } else if (effectivePlatformsEnabled && !selectedCustomerId && selectedPlatformId) {
+                  } else if (effectiveAllowPlatformSale && !selectedCustomerId && selectedPlatformId) {
                     setCreditPartyType('platform');
                   } else {
                     setCreditPartyType('customer');
@@ -3837,7 +3964,7 @@ export const POSPage: React.FC<POSPageProps> = ({
               }}
               creditPartyType={creditPartyType}
               onCreditPartyTypeChange={(pt) => {
-                if (!effectivePlatformsEnabled && pt === 'platform') return;
+                if (!effectiveAllowPlatformSale && pt === 'platform') return;
                 if ((isOffline || (saleMode === 'platform' && salesRules.platformAlwaysCredit)) && pt === 'customer') return;
                 setCreditPartyType(pt);
               }}
@@ -4513,6 +4640,17 @@ export const POSPage: React.FC<POSPageProps> = ({
             </div>
 
             <div className="p-5 space-y-4">
+              {((pendingDraftPrompt.saleMode === 'customer' && !effectiveAllowDirectSale) ||
+                (pendingDraftPrompt.saleMode !== 'customer' && !effectiveAllowPlatformSale)) && (
+                <div
+                  role="alert"
+                  className="p-3 rounded-xl border border-rose-300 bg-rose-50 text-xs font-bold text-rose-800 leading-relaxed"
+                >
+                  تنبيه: هذه المسودة محفوظة على وضع «
+                  {pendingDraftPrompt.saleMode === 'customer' ? 'بيع مباشر للعميل' : 'بيع على منصة'}
+                  »، وهو معطّل حاليًا من إعدادات البيع. عند استكمالها ستبقى بياناتها محفوظة للمراجعة أو التحويل دون حذف تلقائي.
+                </div>
+              )}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-xs space-y-1.5 text-slate-700">
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500 font-semibold">عدد الأصناف:</span>

@@ -69,7 +69,10 @@ export interface PosCartLine {
 export interface PosInvoicePanelProps {
   // Selling mode
   platformsEnabled?: boolean;
+  allowPlatformSale?: boolean;
+  allowDirectSale?: boolean;
   saleMode?: PosSaleMode;
+  saleModeBlockedReason?: string | null;
   onSaleModeChange?: (mode: PosSaleMode) => void;
   denominationsStorageKey?: string;
 
@@ -236,7 +239,10 @@ function writeBooleanPref(storageKey: string, val: boolean): void {
 
 export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
   platformsEnabled = true,
+  allowPlatformSale = true,
+  allowDirectSale = true,
   saleMode: rawSaleMode = 'platform',
+  saleModeBlockedReason = null,
   onSaleModeChange,
   denominationsStorageKey = 'pos_denominations_expanded_default',
 
@@ -517,8 +523,22 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
     return cart.reduce((sum, c) => sum + c.quantity, 0);
   }, [cart]);
 
-  const showPlatformModeUI = platformsEnabled !== false;
-  const saleMode: PosSaleMode = showPlatformModeUI ? rawSaleMode : 'customer';
+  const effectiveAllowPlatformSale = platformsEnabled !== false && allowPlatformSale !== false;
+  const effectiveAllowDirectSale = allowDirectSale !== false;
+  const bothModesAllowed = effectiveAllowPlatformSale && effectiveAllowDirectSale;
+  const saleMode: PosSaleMode = rawSaleMode;
+  const isCurrentDraftModeDisallowed =
+    (saleMode === 'platform' && !effectiveAllowPlatformSale) ||
+    (saleMode === 'customer' && !effectiveAllowDirectSale);
+  const isMissingRequiredPlatformForPlatformOnly =
+    saleMode === 'platform' &&
+    effectiveAllowPlatformSale &&
+    !effectiveAllowDirectSale &&
+    activePlatforms.length === 0;
+  const isCheckoutBlockedByMode =
+    (!effectiveAllowPlatformSale && !effectiveAllowDirectSale) ||
+    isCurrentDraftModeDisallowed ||
+    isMissingRequiredPlatformForPlatformOnly;
 
   // Direct-sale delivery derived state
   const isDeliveryFeatureAvailable = saleMode === 'customer' && Boolean(deliveryConfig?.settings.enabled);
@@ -594,7 +614,8 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
       ? Number(commissionPercentInput)
       : (selectedPlatform?.discountPercentage || 0);
 
-  const isCheckoutDisabled = isSubmitting || cart.length === 0 || hasStockExceeded;
+  const isCheckoutDisabled =
+    isSubmitting || cart.length === 0 || hasStockExceeded || isCheckoutBlockedByMode;
   const isCancelDisabled = isSubmitting || cart.length === 0;
 
   // تسجيل اختصارات نقطة البيع مع المدير المركزي
@@ -673,8 +694,8 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
       {/* 1. الشريط العلوي: زر التبديل بين وضع البيع + عداد القطع والإجمالي + اختيار المخزن (إن زاد عن مخزن واحد) */}
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2.5">
-          {/* زر تبديل وضع البيع (يُخفى وضع المنصات عند إيقاف المنصات) */}
-          {showPlatformModeUI ? (
+          {/* زر تبديل وضع البيع (يظهر التبديل فقط عند تفعيل الوضعين معًا) */}
+          {bothModesAllowed ? (
             <div
               role="group"
               aria-label="وضع البيع"
@@ -706,6 +727,25 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
                 <UserIcon className="w-4 h-4 shrink-0" />
                 <span>بيع لعميل</span>
               </button>
+            </div>
+          ) : isCurrentDraftModeDisallowed && cart.length > 0 ? (
+            <div className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-rose-50 border border-rose-300 text-xs font-extrabold text-rose-800">
+              <Lock className="w-4 h-4 shrink-0 text-rose-600" />
+              <span>
+                {saleMode === 'platform'
+                  ? 'مسودة: بيع على منصة (معطّل)'
+                  : 'مسودة: بيع مباشر لعميل (معطّل)'}
+              </span>
+            </div>
+          ) : !effectiveAllowPlatformSale && !effectiveAllowDirectSale ? (
+            <div className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-rose-50 border border-rose-300 text-xs font-extrabold text-rose-800">
+              <Lock className="w-4 h-4 shrink-0 text-rose-600" />
+              <span>أوضاع البيع معطلة</span>
+            </div>
+          ) : effectiveAllowPlatformSale && !effectiveAllowDirectSale ? (
+            <div className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 border border-slate-200 text-xs font-extrabold text-slate-800">
+              <Store className="w-4 h-4 shrink-0 text-[#1678C2]" />
+              <span>بيع على منصة فقط</span>
             </div>
           ) : (
             <div className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 border border-slate-200 text-xs font-extrabold text-slate-800">
@@ -758,6 +798,38 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
         )}
       </div>
 
+      {/* تنبيه تعطيل وضع البيع أو عدم توافر منصة نشطة أو مسودة في وضع معطّل */}
+      {saleModeBlockedReason && (
+        <div
+          role="alert"
+          data-testid="pos-sale-mode-blocked-banner"
+          className="p-3 rounded-xl border border-rose-300 bg-rose-50 text-rose-800 text-xs font-bold flex flex-col gap-2"
+        >
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            <span className="leading-relaxed">{saleModeBlockedReason}</span>
+          </div>
+          {isCurrentDraftModeDisallowed &&
+            cart.length > 0 &&
+            ((saleMode === 'platform' && effectiveAllowDirectSale) ||
+              (saleMode === 'customer' && effectiveAllowPlatformSale)) && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onSaleModeChange?.(saleMode === 'platform' ? 'customer' : 'platform')
+                  }
+                  className="min-h-[38px] px-3 py-1.5 rounded-lg bg-[#1678C2] hover:bg-[#1366a6] text-white text-xs font-extrabold cursor-pointer transition"
+                >
+                  {saleMode === 'platform'
+                    ? 'تحويل المسودة إلى بيع مباشر'
+                    : 'تحويل المسودة إلى بيع على منصة'}
+                </button>
+              </div>
+            )}
+        </div>
+      )}
+
       {/* رسالة الخطأ إن وجدت */}
       {errorMsg && (
         <div className="p-3 rounded-xl border border-rose-300 text-rose-700 text-xs font-bold flex items-center justify-between gap-2">
@@ -807,8 +879,12 @@ export const PosInvoicePanel: React.FC<PosInvoicePanelProps> = ({
                   : 'border-slate-300 focus:ring-blue-500'
               }`}
             >
-              {(platformSelectionMode === 'manual' || !selectedPlatformId) && (
-                <option value="">اختر المنصة</option>
+              {activePlatforms.length === 0 ? (
+                <option value="">لا توجد منصة نشطة متاحة</option>
+              ) : (
+                (platformSelectionMode === 'manual' || !selectedPlatformId) && (
+                  <option value="">اختر المنصة</option>
+                )
               )}
               {activePlatforms.map(p => (
                 <option key={p.id} value={p.id}>

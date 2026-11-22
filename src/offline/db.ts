@@ -18,7 +18,8 @@ import {
   StockSettings,
   CollectCreditPayload,
   CollectCreditResult,
-  PartyLedgerEntry
+  PartyLedgerEntry,
+  SalesRules
 } from '../types';
 import { api } from '../api/client';
 import { hasPermission } from '../utils/permissions';
@@ -96,6 +97,16 @@ export interface MetaRecord<T = any> {
 
 export const DATA_EPOCH_STORAGE_KEY = 'mudaqqeq_data_epoch';
 export const OUTBOX_CANCELLED_BEFORE_RESET_STATUS = 'ملغاة — سُجّلت قبل إعادة ضبط النظام' as const;
+export const OUTBOX_REJECTED_REVIEW_STATUS = 'مرفوضة — تحتاج مراجعة' as const;
+
+const SETTINGS_REJECTION_CODES = new Set([
+  'PLATFORMS_DISABLED',
+  'PLATFORM_SALE_DISABLED',
+  'DIRECT_SALE_DISABLED',
+  'ALL_SALE_MODES_DISABLED',
+  'SALE_MODE_DISABLED',
+  'ACTIVE_PLATFORM_REQUIRED'
+]);
 
 export type OutboxOperationStatus =
   | 'معلّقة'
@@ -103,7 +114,8 @@ export type OutboxOperationStatus =
   | 'syncing'
   | 'failed'
   | 'synced'
-  | typeof OUTBOX_CANCELLED_BEFORE_RESET_STATUS;
+  | typeof OUTBOX_CANCELLED_BEFORE_RESET_STATUS
+  | typeof OUTBOX_REJECTED_REVIEW_STATUS;
 
 export interface OutboxOperation {
   id: string;
@@ -1565,6 +1577,7 @@ export async function createOfflineInvoiceInDb(params: {
   fallbackCustomers?: Customer[];
   taxSettings?: TaxSettings;
   platformsEnabled?: boolean;
+  salesRules?: SalesRules;
 }): Promise<{
   invoice: Invoice;
   updatedItems: Item[];
@@ -1580,7 +1593,8 @@ export async function createOfflineInvoiceInDb(params: {
     fallbackCashboxes = [],
     fallbackCustomers = [],
     taxSettings = { taxInclusive: true, platformCommissionOn: 'before_tax' },
-    platformsEnabled = true
+    platformsEnabled = true,
+    salesRules
   } = params;
 
   const paymentType: 'نقدي' | 'آجل' | 'جزئي' = invoicePayload.paymentType || 'نقدي';
@@ -1595,9 +1609,32 @@ export async function createOfflineInvoiceInDb(params: {
   if (paymentType === 'آجل' && creditPartyType !== 'platform') {
     throw new Error('البيع الآجل للعميل غير متاح بدون إنترنت (متاح عند رجوع الاتصال)');
   }
-  const requestedPlatformName = String(invoicePayload.platform || invoicePayload.platformName || 'البيع المباشر').trim();
-  if (!platformsEnabled && (requestedPlatformName !== 'البيع المباشر' || creditPartyType === 'platform')) {
-    throw new Error('مبيعات ووظائف المنصات معطلة حاليًا من إعدادات النظام');
+  const requestedPlatformIdPre = String(invoicePayload.platformId || '').trim();
+  const requestedPlatformNamePre = String(invoicePayload.platform || invoicePayload.platformName || 'البيع المباشر').trim();
+  const isRequestedPlatformSale =
+    (Boolean(requestedPlatformIdPre && requestedPlatformIdPre !== 'direct') ||
+      (requestedPlatformNamePre !== '' && requestedPlatformNamePre !== 'البيع المباشر')) ||
+    creditPartyType === 'platform';
+
+  const preEffectivePlatformsEnabled =
+    platformsEnabled !== false &&
+    salesRules?.platformsEnabled !== false &&
+    salesRules?.salesOnlyMode !== true;
+  const preAllowPlatformSale = preEffectivePlatformsEnabled && salesRules?.allowPlatformSale !== false;
+  const preAllowDirectSale = salesRules?.allowDirectSale !== false;
+
+  if (!preAllowPlatformSale && !preAllowDirectSale) {
+    throw new Error('البيع على منصة والبيع المباشر للعميل معطلان حاليًا من إعدادات البيع؛ فعّل وضع بيع واحد على الأقل أولًا');
+  }
+  if (isRequestedPlatformSale && !preAllowPlatformSale) {
+    throw new Error(
+      !preEffectivePlatformsEnabled
+        ? 'مبيعات ووظائف المنصات معطلة حاليًا من إعدادات النظام'
+        : 'البيع على منصة معطّل حاليًا من إعدادات البيع؛ لا يمكن تسجيل فاتورة منصة'
+    );
+  }
+  if (!isRequestedPlatformSale && !preAllowDirectSale) {
+    throw new Error('البيع المباشر للعميل معطّل حاليًا من إعدادات البيع؛ لا يمكن تسجيل فاتورة بيع مباشر');
   }
 
   const linesInput: any[] = Array.isArray(invoicePayload.lines) ? invoicePayload.lines : [];
@@ -1683,27 +1720,63 @@ export async function createOfflineInvoiceInDb(params: {
   const effectiveTaxSettings: TaxSettings =
     settingsRec?.data?.taxSettings || taxSettings || { taxInclusive: true, platformCommissionOn: 'before_tax' };
 
-  const platformName = String(invoicePayload.platform || invoicePayload.platformName || 'البيع المباشر');
+  const platformIdInput = String(invoicePayload.platformId || '').trim();
+  const platformName = String(invoicePayload.platform || invoicePayload.platformName || 'البيع المباشر').trim() || 'البيع المباشر';
   const cachedSalesRules = settingsRec?.data?.salesRules;
+  const mergedOfflineRules: Partial<SalesRules> | undefined =
+    cachedSalesRules || salesRules ? { ...(cachedSalesRules || {}), ...(salesRules || {}) } : undefined;
   const effectivePlatformsEnabled =
     platformsEnabled !== false &&
-    cachedSalesRules?.platformsEnabled !== false &&
-    cachedSalesRules?.salesOnlyMode !== true;
-  if (!effectivePlatformsEnabled && (platformName !== 'البيع المباشر' || creditPartyType === 'platform')) {
-    throw new Error('مبيعات ووظائف المنصات معطلة حاليًا من إعدادات النظام');
+    mergedOfflineRules?.platformsEnabled !== false &&
+    mergedOfflineRules?.salesOnlyMode !== true;
+  const effectiveAllowPlatformSale =
+    effectivePlatformsEnabled && mergedOfflineRules?.allowPlatformSale !== false;
+  const effectiveAllowDirectSale = mergedOfflineRules?.allowDirectSale !== false;
+
+  const matchedLocalPlatform = localPlatforms.find(
+    p => (platformIdInput && p.id === platformIdInput) || (platformName && p.name === platformName)
+  );
+  const isDirectTarget = matchedLocalPlatform
+    ? matchedLocalPlatform.name === 'البيع المباشر'
+    : (!platformIdInput || platformIdInput === 'direct') &&
+      (!platformName || platformName === 'البيع المباشر');
+  const isPlatformSale = !isDirectTarget || creditPartyType === 'platform';
+
+  if (!effectiveAllowPlatformSale && !effectiveAllowDirectSale) {
+    throw new Error('البيع على منصة والبيع المباشر للعميل معطلان حاليًا من إعدادات البيع؛ فعّل وضع بيع واحد على الأقل أولًا');
   }
-  const selectedPlatform: Platform =
-    localPlatforms.find(p => p.id === invoicePayload.platformId || p.name === platformName) || {
-      id: invoicePayload.platformId || 'direct',
-      name: platformName,
-      discountPercentage: Number(invoicePayload.platformDiscountPercentage || 0),
-      pickupFee: 0,
-      pickupFeeMode: 'platform',
-      enableBnpl: Boolean(invoicePayload.bnplEnabled),
-      bnplPercentage: Number(invoicePayload.bnplPercentOverride || 0),
-      notes: '',
-      status: 'نشطة'
-    };
+  if (isPlatformSale && !effectiveAllowPlatformSale) {
+    throw new Error(
+      !effectivePlatformsEnabled
+        ? 'مبيعات ووظائف المنصات معطلة حاليًا من إعدادات النظام'
+        : 'البيع على منصة معطّل حاليًا من إعدادات البيع؛ لا يمكن تسجيل فاتورة منصة'
+    );
+  }
+  if (!isPlatformSale && !effectiveAllowDirectSale) {
+    throw new Error('البيع المباشر للعميل معطّل حاليًا من إعدادات البيع؛ لا يمكن تسجيل فاتورة بيع مباشر');
+  }
+
+  const isLocalPlatformActive = (p?: Platform) =>
+    Boolean(p) &&
+    p!.id !== 'direct' &&
+    p!.name !== 'البيع المباشر' &&
+    !['inactive', 'موقوف', 'موقوفة', 'معطل', 'معطلة'].includes(String(p?.status ?? ''));
+
+  if (isPlatformSale && !isLocalPlatformActive(matchedLocalPlatform)) {
+    throw new Error('لا توجد منصة نشطة صالحة مختارة لإتمام البيع على منصة؛ يرجى اختيار منصة نشطة أو تفعيل منصة أولًا');
+  }
+
+  const selectedPlatform: Platform = matchedLocalPlatform || {
+    id: platformIdInput || 'direct',
+    name: platformName,
+    discountPercentage: Number(invoicePayload.platformDiscountPercentage || 0),
+    pickupFee: 0,
+    pickupFeeMode: 'platform',
+    enableBnpl: Boolean(invoicePayload.bnplEnabled),
+    bnplPercentage: Number(invoicePayload.bnplPercentOverride || 0),
+    notes: '',
+    status: 'نشطة'
+  };
 
   // تجميع الكميات المطلوبة لكل صنف وفحص الرصيد المحلي لتحديد needsReview
   const aggregatedQtyMap = new Map<string, number>();
@@ -2535,6 +2608,7 @@ export interface OutboxSyncResult {
   syncedCount: number;
   failedCount: number;
   cancelledBeforeResetCount?: number;
+  rejectedReviewCount?: number;
   remainingCount: number;
   syncedInvoices: SyncedOutboxInvoiceItem[];
   lastError: string | null;
@@ -2684,6 +2758,7 @@ export async function syncOutboxOperations(options?: {
     let syncedCount = 0;
     let failedCount = 0;
     let cancelledBeforeResetCount = 0;
+    let rejectedReviewCount = 0;
     let lastError: string | null = null;
     let maxRetryCountOnFailure = 0;
 
@@ -2705,6 +2780,8 @@ export async function syncOutboxOperations(options?: {
           totalProcessed: 0,
           syncedCount: 0,
           failedCount: 0,
+          cancelledBeforeResetCount: 0,
+          rejectedReviewCount: 0,
           remainingCount: 0,
           syncedInvoices: [],
           lastError: null,
@@ -2909,6 +2986,22 @@ export async function syncOutboxOperations(options?: {
             cancelledBeforeResetCount++;
             // لا نوقف المزامنة عند عملية أقدم من إعادة الضبط؛ ننتقل للعمليات الأحدث
             continue;
+          } else if (
+            res &&
+            !res.success &&
+            (res.statusCode === 403 || SETTINGS_REJECTION_CODES.has(String(res.code || '').trim()))
+          ) {
+            const reasonMsg =
+              (res.error && String(res.error).trim()) ||
+              'تم رفض العملية من الخادم لتعارضها مع إعدادات البيع الحالية؛ محفوظة محليًا للمراجعة.';
+            await updateOutboxOperation(op.id, {
+              status: OUTBOX_REJECTED_REVIEW_STATUS,
+              needsReview: true,
+              lastError: reasonMsg
+            });
+            rejectedReviewCount++;
+            if (!lastError) lastError = reasonMsg;
+            continue;
           } else {
             const errMsg = (res && res.error) || 'تعذر رفع العملية إلى الخادم';
             failedCount++;
@@ -2935,6 +3028,23 @@ export async function syncOutboxOperations(options?: {
               lastError: reasonMsg
             });
             cancelledBeforeResetCount++;
+            continue;
+          }
+          if (
+            err?.status === 403 ||
+            err?.statusCode === 403 ||
+            SETTINGS_REJECTION_CODES.has(String(err?.code || '').trim())
+          ) {
+            const reasonMsg =
+              (err?.message && String(err.message).trim()) ||
+              'تم رفض العملية من الخادم لتعارضها مع إعدادات البيع الحالية؛ محفوظة محليًا للمراجعة.';
+            await updateOutboxOperation(op.id, {
+              status: OUTBOX_REJECTED_REVIEW_STATUS,
+              needsReview: true,
+              lastError: reasonMsg
+            });
+            rejectedReviewCount++;
+            if (!lastError) lastError = reasonMsg;
             continue;
           }
           const errMsg = err?.message || 'انقطع الاتصال أثناء رفع العملية';
@@ -2994,6 +3104,7 @@ export async function syncOutboxOperations(options?: {
         syncedCount,
         failedCount,
         cancelledBeforeResetCount,
+        rejectedReviewCount,
         remainingCount,
         syncedInvoices,
         lastError,
@@ -3366,11 +3477,13 @@ export async function getOutboxSummaryForSyncScreen(): Promise<{
   pendingOps: OutboxOperation[];
   failedOps: OutboxOperation[];
   cancelledOps: OutboxOperation[];
+  rejectedReviewOps: OutboxOperation[];
   pendingCount: number;
   pendingTotalAmount: number;
   failedCount: number;
   failedTotalAmount: number;
   cancelledCount: number;
+  rejectedReviewCount: number;
 }> {
   const allOps = await getOutboxOperations();
   const pendingOps = allOps.filter(
@@ -3383,10 +3496,15 @@ export async function getOutboxSummaryForSyncScreen(): Promise<{
   const cancelledOps = allOps.filter(
     op => op.status === OUTBOX_CANCELLED_BEFORE_RESET_STATUS
   );
+  const rejectedReviewOps = allOps.filter(
+    op => op.status === OUTBOX_REJECTED_REVIEW_STATUS
+  );
   const failedOps = allOps.filter(
     op =>
       op.status !== OUTBOX_CANCELLED_BEFORE_RESET_STATUS &&
-      (op.status === 'failed' || Boolean(op.lastError && String(op.lastError).trim()))
+      (op.status === 'failed' ||
+        op.status === OUTBOX_REJECTED_REVIEW_STATUS ||
+        Boolean(op.lastError && String(op.lastError).trim()))
   );
 
   const pendingTotalAmount =
@@ -3399,11 +3517,13 @@ export async function getOutboxSummaryForSyncScreen(): Promise<{
     pendingOps,
     failedOps,
     cancelledOps,
+    rejectedReviewOps,
     pendingCount: pendingOps.length,
     pendingTotalAmount,
     failedCount: failedOps.length,
     failedTotalAmount,
-    cancelledCount: cancelledOps.length
+    cancelledCount: cancelledOps.length,
+    rejectedReviewCount: rejectedReviewOps.length
   };
 }
 

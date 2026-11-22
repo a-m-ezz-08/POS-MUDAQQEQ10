@@ -727,8 +727,8 @@
     padding-inline-start: 328px; /* 20px outer margin + 288px sidebar + 20px gap */
   }
 
-  [data-theme="aurora"] #root > div.app-shell:not(.login-gradient-bg):has(aside.w-16),
-  [data-theme="aurora-sky"] #root > div.app-shell:not(.login-gradient-bg):has(aside.w-16) {
+  [data-theme="aurora"] #root > div.app-shell:not(.login-gradient-bg):has(aside[data-app-sidebar="true"].w-16),
+  [data-theme="aurora-sky"] #root > div.app-shell:not(.login-gradient-bg):has(aside[data-app-sidebar="true"].w-16) {
     padding-inline-start: 100px; /* 20px outer margin + 64px collapsed rail + 16px gap */
   }
 
@@ -967,8 +967,8 @@ button.navbar-glass-chip--amber:hover {
   background: var(--brand-gradient);
 }
 
-[data-theme="aurora"] #root aside,
-[data-theme="aurora-sky"] #root aside {
+[data-theme="aurora"] #root aside[data-app-sidebar="true"],
+[data-theme="aurora-sky"] #root aside[data-app-sidebar="true"] {
   background-color: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
@@ -978,8 +978,8 @@ button.navbar-glass-chip--amber:hover {
 }
 
 @media (min-width: 768px) {
-  [data-theme="aurora"] #root aside,
-  [data-theme="aurora-sky"] #root aside {
+  [data-theme="aurora"] #root aside[data-app-sidebar="true"],
+  [data-theme="aurora-sky"] #root aside[data-app-sidebar="true"] {
     position: fixed;
     top: 20px;
     bottom: 20px;
@@ -1001,13 +1001,13 @@ button.navbar-glass-chip--amber:hover {
   box-shadow: 0 8px 18px rgba(10, 95, 194, 0.28);
 }
 
-[data-theme="aurora"] #root aside button,
-[data-theme="aurora-sky"] #root aside button {
+[data-theme="aurora"] #root aside[data-app-sidebar="true"] button,
+[data-theme="aurora-sky"] #root aside[data-app-sidebar="true"] button {
   min-height: 44px;
 }
 
-[data-theme="aurora"] #root aside .mudaqqeq-pos-cta,
-[data-theme="aurora-sky"] #root aside .mudaqqeq-pos-cta {
+[data-theme="aurora"] #root aside[data-app-sidebar="true"] .mudaqqeq-pos-cta,
+[data-theme="aurora-sky"] #root aside[data-app-sidebar="true"] .mudaqqeq-pos-cta {
   height: 52px;
   min-height: 52px;
   border-radius: 18px;
@@ -1017,11 +1017,11 @@ button.navbar-glass-chip--amber:hover {
   font-size: 14px;
 }
 
-[data-theme="aurora"] #root aside .mudaqqeq-pos-cta {
+[data-theme="aurora"] #root aside[data-app-sidebar="true"] .mudaqqeq-pos-cta {
   box-shadow: 0 12px 26px rgba(109, 40, 217, 0.34);
 }
 
-[data-theme="aurora-sky"] #root aside .mudaqqeq-pos-cta {
+[data-theme="aurora-sky"] #root aside[data-app-sidebar="true"] .mudaqqeq-pos-cta {
   box-shadow: 0 12px 26px rgba(10, 95, 194, 0.32);
 }
 
@@ -1464,11 +1464,11 @@ button.navbar-glass-chip--amber:hover {
   --header-bg: transparent;
 }
 
-[data-theme="aurora"][data-motion="off"] #root aside,
+[data-theme="aurora"][data-motion="off"] #root aside[data-app-sidebar="true"],
 [data-theme="aurora"][data-motion="off"] #root nav.fixed.bottom-0,
 [data-theme="aurora"][data-motion="off"] #root .aurora-mobile-bottom-nav,
 [data-theme="aurora"][data-motion="off"] main .bg-white:is(.rounded-xl, .rounded-2xl, .rounded-3xl, [class*="rounded-[28px]"]),
-[data-theme="aurora-sky"][data-motion="off"] #root aside,
+[data-theme="aurora-sky"][data-motion="off"] #root aside[data-app-sidebar="true"],
 [data-theme="aurora-sky"][data-motion="off"] #root nav.fixed.bottom-0,
 [data-theme="aurora-sky"][data-motion="off"] #root .aurora-mobile-bottom-nav,
 [data-theme="aurora-sky"][data-motion="off"] main .bg-white:is(.rounded-xl, .rounded-2xl, .rounded-3xl, [class*="rounded-[28px]"]) {
@@ -1522,11 +1522,11 @@ button.navbar-glass-chip--amber:hover {
     --header-bg: transparent;
   }
 
-  [data-theme="aurora"] #root aside,
+  [data-theme="aurora"] #root aside[data-app-sidebar="true"],
   [data-theme="aurora"] #root nav.fixed.bottom-0,
   [data-theme="aurora"] #root .aurora-mobile-bottom-nav,
   [data-theme="aurora"] main .bg-white:is(.rounded-xl, .rounded-2xl, .rounded-3xl, [class*="rounded-[28px]"]),
-  [data-theme="aurora-sky"] #root aside,
+  [data-theme="aurora-sky"] #root aside[data-app-sidebar="true"],
   [data-theme="aurora-sky"] #root nav.fixed.bottom-0,
   [data-theme="aurora-sky"] #root .aurora-mobile-bottom-nav,
   [data-theme="aurora-sky"] main .bg-white:is(.rounded-xl, .rounded-2xl, .rounded-3xl, [class*="rounded-[28px]"]) {
@@ -1581,11 +1581,11 @@ button.navbar-glass-chip--amber:hover {
     --header-bg: transparent;
   }
 
-  [data-theme="aurora"] #root aside,
+  [data-theme="aurora"] #root aside[data-app-sidebar="true"],
   [data-theme="aurora"] #root nav.fixed.bottom-0,
   [data-theme="aurora"] #root .aurora-mobile-bottom-nav,
   [data-theme="aurora"] main .bg-white:is(.rounded-xl, .rounded-2xl, .rounded-3xl, [class*="rounded-[28px]"]),
-  [data-theme="aurora-sky"] #root aside,
+  [data-theme="aurora-sky"] #root aside[data-app-sidebar="true"],
   [data-theme="aurora-sky"] #root nav.fixed.bottom-0,
   [data-theme="aurora-sky"] #root .aurora-mobile-bottom-nav,
   [data-theme="aurora-sky"] main .bg-white:is(.rounded-xl, .rounded-2xl, .rounded-3xl, [class*="rounded-[28px]"]) {
@@ -1640,11 +1640,11 @@ button.navbar-glass-chip--amber:hover {
     --header-bg: transparent;
   }
 
-  [data-theme="aurora"] #root aside,
+  [data-theme="aurora"] #root aside[data-app-sidebar="true"],
   [data-theme="aurora"] #root nav.fixed.bottom-0,
   [data-theme="aurora"] #root .aurora-mobile-bottom-nav,
   [data-theme="aurora"] main .bg-white:is(.rounded-xl, .rounded-2xl, .rounded-3xl, [class*="rounded-[28px]"]),
-  [data-theme="aurora-sky"] #root aside,
+  [data-theme="aurora-sky"] #root aside[data-app-sidebar="true"],
   [data-theme="aurora-sky"] #root nav.fixed.bottom-0,
   [data-theme="aurora-sky"] #root .aurora-mobile-bottom-nav,
   [data-theme="aurora-sky"] main .bg-white:is(.rounded-xl, .rounded-2xl, .rounded-3xl, [class*="rounded-[28px]"]) {

@@ -22,6 +22,7 @@ import {
   BackupDirectoryStatus,
   subscribeOfflineDb,
   OUTBOX_CANCELLED_BEFORE_RESET_STATUS,
+  OUTBOX_REJECTED_REVIEW_STATUS,
 } from '../offline/db';
 import { useOfflineMode } from '../hooks/useOfflineMode';
 import { hasPermission } from '../utils/permissions';
@@ -72,10 +73,12 @@ export const SyncPage: React.FC<SyncPageProps> = ({
   const [pendingOps, setPendingOps] = useState<OutboxOperation[]>([]);
   const [failedOps, setFailedOps] = useState<OutboxOperation[]>([]);
   const [cancelledOps, setCancelledOps] = useState<OutboxOperation[]>([]);
+  const [rejectedReviewOps, setRejectedReviewOps] = useState<OutboxOperation[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingTotalAmount, setPendingTotalAmount] = useState(0);
   const [failedCount, setFailedCount] = useState(0);
   const [cancelledCount, setCancelledCount] = useState(0);
+  const [rejectedReviewCount, setRejectedReviewCount] = useState(0);
 
   const [backupDirStatus, setBackupDirStatus] = useState<BackupDirectoryStatus | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -100,10 +103,12 @@ export const SyncPage: React.FC<SyncPageProps> = ({
     setPendingOps(summary.pendingOps);
     setFailedOps(summary.failedOps);
     setCancelledOps(summary.cancelledOps);
+    setRejectedReviewOps(summary.rejectedReviewOps || []);
     setPendingCount(summary.pendingCount);
     setPendingTotalAmount(summary.pendingTotalAmount);
     setFailedCount(summary.failedCount);
     setCancelledCount(summary.cancelledCount);
+    setRejectedReviewCount(summary.rejectedReviewCount || 0);
     setBackupDirStatus(dirStatus);
   }, []);
 
@@ -164,7 +169,8 @@ export const SyncPage: React.FC<SyncPageProps> = ({
       const res = await syncNow();
       await loadLocalOutboxState();
       await onRefreshData();
-      if (res.failedCount === 0) {
+      const rejectedCnt = res.rejectedReviewCount || 0;
+      if (res.failedCount === 0 && rejectedCnt === 0) {
         setStatusBanner({
           type: 'success',
           text:
@@ -172,12 +178,22 @@ export const SyncPage: React.FC<SyncPageProps> = ({
               ? `تمت مزامنة ورفع ${res.syncedCount} عملية بنجاح.`
               : 'جميع العمليات متزامنة ولا توجد عمليات معلّقة.',
         });
+      } else if (res.failedCount === 0 && rejectedCnt > 0) {
+        setStatusBanner({
+          type: 'error',
+          text: `تم رفع ${res.syncedCount} عملية، ورُفضت ${rejectedCnt} عملية لتعارضها مع إعدادات البيع الحالية (محفوظة محليًا للمراجعة ولن تُحذف أو تُعاد محاولتها تلقائيًا): ${
+            res.lastError || 'يرجى مراجعة تبويب تحتاج مراجعة'
+          }`,
+        });
+        if (onNavigate && activeTab !== 'needs_review') {
+          onNavigate('sync', 'needs_review');
+        }
       } else {
         setStatusBanner({
           type: 'error',
-          text: `تم رفع ${res.syncedCount} عملية، وتعذر رفع ${res.failedCount} عملية: ${
-            res.lastError || 'يرجى مراجعة العمليات الفاشلة'
-          }`,
+          text: `تم رفع ${res.syncedCount} عملية، وتعذر رفع ${res.failedCount} عملية${
+            rejectedCnt > 0 ? ` ورُفضت ${rejectedCnt} عملية محفوظة للمراجعة` : ''
+          }: ${res.lastError || 'يرجى مراجعة العمليات الفاشلة'}`,
         });
         if (onNavigate && activeTab !== 'failed') {
           onNavigate('sync', 'failed');
@@ -379,6 +395,16 @@ export const SyncPage: React.FC<SyncPageProps> = ({
       note: 'رصيد سالب أو تحصيل مكرر أو تعارض',
       valueClassName: needsReviewInvoices.length > 0 ? 'ui-stock-low' : 'text-[var(--text-primary)]',
     },
+    ...(rejectedReviewCount > 0
+      ? [
+          {
+            label: 'عمليات محلية مرفوضة عند المزامنة',
+            value: `${rejectedReviewCount} عملية`,
+            note: 'محفوظة محليًا للمراجعة ولا تُحذف أو تُعاد محاولتها تلقائيًا',
+            valueClassName: 'ui-stock-out',
+          } satisfies ReportSummaryRow,
+        ]
+      : []),
     ...(cancelledCount > 0
       ? [
           {
@@ -395,6 +421,8 @@ export const SyncPage: React.FC<SyncPageProps> = ({
     deviceId ? ` • معرّف الجهاز: ${deviceId.slice(0, 8).toUpperCase()}` : ''
   }`;
 
+  const totalNeedsReviewCount = needsReviewInvoices.length + rejectedReviewCount;
+
   const syncHeaderMeta: Record<SyncTab, { title: string; subtitle: string }> = {
     pending: {
       title: `المزامنة — العمليات المعلّقة (${pendingCount})`,
@@ -405,8 +433,8 @@ export const SyncPage: React.FC<SyncPageProps> = ({
       subtitle: `مراجعة العمليات التي تعذر رفعها وأسباب الفشل لإعادة المحاولة • ${deviceMetaLine}`,
     },
     needs_review: {
-      title: `المزامنة — فواتير تحتاج مراجعة (${needsReviewInvoices.length})`,
-      subtitle: `مراجعة فواتير الأوفلاين ذات الرصيد السالب أو التعارض عبر كل الأجهزة • ${deviceMetaLine}`,
+      title: `المزامنة — فواتير تحتاج مراجعة (${totalNeedsReviewCount})`,
+      subtitle: `مراجعة فواتير الأوفلاين ذات الرصيد السالب أو التعارض أو المرفوضة عند المزامنة • ${deviceMetaLine}`,
     },
   };
 
@@ -690,9 +718,14 @@ export const SyncPage: React.FC<SyncPageProps> = ({
                           : '—'}
                       </td>
                       <td className={`text-center font-bold ${COMPACT_TABLE_NUM_CLASS}`}>
-                        {op.retryCount || 1}
+                        {op.status === OUTBOX_REJECTED_REVIEW_STATUS ? 'موقوفة للمراجعة' : op.retryCount || 1}
                       </td>
                       <td className={`font-semibold ui-stock-out ${COMPACT_TABLE_TEXT_CLASS}`}>
+                        {op.status === OUTBOX_REJECTED_REVIEW_STATUS && (
+                          <span className="block text-[11px] font-bold mb-0.5">
+                            {OUTBOX_REJECTED_REVIEW_STATUS}
+                          </span>
+                        )}
                         {op.lastError || 'تعذر الاتصال بالخادم أثناء الرفع'}
                       </td>
                     </tr>
@@ -706,12 +739,74 @@ export const SyncPage: React.FC<SyncPageProps> = ({
 
       {/* التبويب الثالث: تحتاج مراجعة */}
       {activeTab === 'needs_review' && (
-        <div>
-          {needsReviewInvoices.length === 0 ? (
+        <div className="space-y-6">
+          {rejectedReviewOps.length > 0 && (
+            <div className="space-y-3">
+              <SectionHeading
+                title={`عمليات محلية مرفوضة عند المزامنة — محفوظة للمراجعة (${rejectedReviewOps.length})`}
+              />
+              <p className="text-xs text-[var(--text-secondary)]">
+                رُفضت هذه العمليات من الخادم عند المزامنة بسبب تحديث إعدادات البيع أو المنصات، وتم حفظها محليًا للمراجعة ولن تُحذف أو تُعاد محاولتها تلقائيًا.
+              </p>
+              <CompactTable ariaLabel="جدول العمليات المحلية المرفوضة عند المزامنة">
+                <thead>
+                  <tr>
+                    <th className={`text-right ${COMPACT_TABLE_TEXT_CLASS}`}>العملية</th>
+                    <th className={`text-right ${COMPACT_TABLE_NUM_CLASS}`}>رقم المستند المؤقت</th>
+                    <th className={`text-right ${COMPACT_TABLE_NUM_CLASS}`}>وقت الجهاز</th>
+                    <th className={`text-right ${COMPACT_TABLE_TEXT_CLASS}`}>المستخدم</th>
+                    <th className={`text-left ${COMPACT_TABLE_NUM_CLASS}`}>القيمة</th>
+                    <th className={`text-right ${COMPACT_TABLE_TEXT_CLASS}`}>الحالة</th>
+                    <th className={`text-right ${COMPACT_TABLE_TEXT_CLASS}`}>سبب الرفض</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rejectedReviewOps.map((op) => {
+                    const amount = getOperationMonetaryAmount(op);
+                    const docNo =
+                      op.invoiceNumber ||
+                      op.payload?.offlineProvisionalNo ||
+                      op.payload?.collectionId ||
+                      op.id.slice(0, 8);
+                    return (
+                      <tr key={op.id}>
+                        <td className={`font-bold ${COMPACT_TABLE_TEXT_CLASS}`}>
+                          {getOperationTypeLabelAr(op)}
+                        </td>
+                        <td className={`font-mono font-bold ${COMPACT_TABLE_NUM_CLASS}`}>{docNo}</td>
+                        <td className={`text-[var(--text-secondary)] ${COMPACT_TABLE_NUM_CLASS}`}>
+                          {formatDateTimeAr(op.deviceTime || op.createdAt)}
+                        </td>
+                        <td className={`font-semibold ${COMPACT_TABLE_TEXT_CLASS}`}>
+                          {op.userName || op.createdByUserName || 'كاشير'}
+                        </td>
+                        <td className={`text-left font-bold ${COMPACT_TABLE_NUM_CLASS}`}>
+                          {amount > 0
+                            ? `${amount.toLocaleString('en-US', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })} ج.م`
+                            : '—'}
+                        </td>
+                        <td className={`font-bold ui-stock-out ${COMPACT_TABLE_TEXT_CLASS}`}>
+                          {OUTBOX_REJECTED_REVIEW_STATUS}
+                        </td>
+                        <td className={`font-semibold ui-stock-out ${COMPACT_TABLE_TEXT_CLASS}`}>
+                          {op.lastError || 'رُفضت لتعارضها مع إعدادات البيع الحالية'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </CompactTable>
+            </div>
+          )}
+
+          {needsReviewInvoices.length === 0 && rejectedReviewOps.length === 0 ? (
             <div className="py-8 text-xs text-[var(--text-secondary)]">
               لا توجد فواتير أو عمليات تحتاج إلى مراجعة من أي جهاز — جميع الفواتير المرفوعة تمت مطابقتها ومراجعتها.
             </div>
-          ) : (
+          ) : needsReviewInvoices.length > 0 ? (
             <CompactTable ariaLabel="جدول الفواتير التي تحتاج مراجعة">
               <thead>
                 <tr>
@@ -823,7 +918,7 @@ export const SyncPage: React.FC<SyncPageProps> = ({
                 })}
               </tbody>
             </CompactTable>
-          )}
+          ) : null}
         </div>
       )}
 

@@ -610,6 +610,8 @@ const DEFAULT_SALES_RULES: SalesRules = {
   allowZeroPriceSale: true,
   allowBelowCostSale: true,
   platformAlwaysCredit: false,
+  allowPlatformSale: true,
+  allowDirectSale: true,
   updatedAt: '',
   updatedBy: '',
   effectivePlatformSelection: 'first',
@@ -1033,7 +1035,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     return {
       ...merged,
       salesOnlyMode: salesOnly,
-      platformsEnabled
+      platformsEnabled,
+      allowPlatformSale: merged.allowPlatformSale !== false,
+      allowDirectSale: merged.allowDirectSale !== false
     };
   };
 
@@ -1400,7 +1404,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       salesNormCustomerId !== committedNormCustomerId ||
       Boolean(salesRules.allowZeroPriceSale) !== Boolean(committedSalesRules.allowZeroPriceSale) ||
       Boolean(salesRules.allowBelowCostSale) !== Boolean(committedSalesRules.allowBelowCostSale) ||
-      Boolean(salesRules.platformAlwaysCredit) !== Boolean(committedSalesRules.platformAlwaysCredit);
+      Boolean(salesRules.platformAlwaysCredit) !== Boolean(committedSalesRules.platformAlwaysCredit) ||
+      (salesRules.allowPlatformSale !== false) !== (committedSalesRules.allowPlatformSale !== false) ||
+      (salesRules.allowDirectSale !== false) !== (committedSalesRules.allowDirectSale !== false);
 
     const salesRulesDirty = featureModesDirty || posSalesRulesDirty;
 
@@ -1787,9 +1793,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       if (canManageSalesRules && pageDiffs.salesRulesDirty) {
         const nextSalesOnly = Boolean(salesRules.salesOnlyMode);
         const nextPlatformsEnabled = nextSalesOnly ? false : salesRules.platformsEnabled !== false;
+        const allowPlatformChanged =
+          (salesRules.allowPlatformSale !== false) !==
+          (committedSalesRules.allowPlatformSale !== false);
         const res = await api.saveSalesRules({
           platformsEnabled: nextPlatformsEnabled,
           salesOnlyMode: nextSalesOnly,
+          ...(allowPlatformChanged || nextPlatformsEnabled
+            ? { allowPlatformSale: salesRules.allowPlatformSale !== false }
+            : {}),
+          allowDirectSale: salesRules.allowDirectSale !== false,
           defaultSaleMode:
             !nextPlatformsEnabled && salesRules.defaultSaleMode === 'platform'
               ? 'direct'
@@ -3674,11 +3687,128 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       {/* 3) قسم: نقطة البيع وقواعد السعر */}
       {activeSection === 'pos_sales' && (
         <div className="space-y-6">
-          {canManageSalesRules && (
+          {canManageSalesRules && (() => {
+            const isPlatformsSubsystemActive =
+              salesRules.platformsEnabled !== false && !salesRules.salesOnlyMode;
+            const isAllowPlatformToggleOn =
+              isPlatformsSubsystemActive && salesRules.allowPlatformSale !== false;
+            const isAllowDirectToggleOn = salesRules.allowDirectSale !== false;
+            const bothSaleModesDisabled = !isAllowPlatformToggleOn && !isAllowDirectToggleOn;
+            return (
             <div id="settings-sales-rules-section" className="space-y-6">
-              <SectionHeading title="الافتراضيات عند فتح شاشة البيع" />
+              <SectionHeading title="أوضاع البيع المسموحة في نقطة البيع" />
 
-              {salesRules.defaultPlatformMissing && salesRules.platformsEnabled !== false && !salesRules.salesOnlyMode && (
+              {bothSaleModesDisabled && (
+                <div
+                  role="alert"
+                  className="flex items-center gap-2 p-3 rounded-xl border border-rose-300 bg-rose-50 text-xs font-bold text-rose-800"
+                >
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>
+                    البيع على منصة والبيع المباشر للعميل معطلان معًا — سيتم حظر إنشاء أي فاتورة جديدة في نقطة البيع (أونلاين وأوفلاين وعلى الخادم) حتى يتم تفعيل وضع بيع واحد على الأقل.
+                  </span>
+                </div>
+              )}
+
+              <div>
+                {renderSettingRow(
+                  'السماح بالبيع على منصة',
+                  !isPlatformsSubsystemActive
+                    ? salesRules.salesOnlyMode
+                      ? 'لا يمكن تفعيل البيع على منصة أثناء تفعيل «وضع البيع فقط». أوقف «وضع البيع فقط» ثم فعّل المنصات أولًا.'
+                      : 'لا يمكن تفعيل البيع على منصة حاليًا لأن مبيعات ووظائف المنصات معطلة من قسم «المنصات ووضع البيع فقط».'
+                    : 'السماح بإصدار فواتير البيع على منصة في نقطة البيع مع تطبيق العمولات والخصومات ورسوم الالتقاط وBNPL والآجل.',
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`text-xs font-bold ${
+                        isAllowPlatformToggleOn ? 'ui-money-purchase' : 'text-[var(--text-secondary)]'
+                      }`}
+                    >
+                      {isAllowPlatformToggleOn ? 'مفعّل' : 'متوقف'}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={!isPlatformsSubsystemActive}
+                      onClick={() => {
+                        if (!isPlatformsSubsystemActive) return;
+                        setSalesRules((prev) => {
+                          const nextVal = prev.allowPlatformSale === false;
+                          return {
+                            ...prev,
+                            allowPlatformSale: nextVal
+                          };
+                        });
+                      }}
+                      role="switch"
+                      aria-checked={isAllowPlatformToggleOn}
+                      aria-disabled={!isPlatformsSubsystemActive}
+                      aria-label="السماح بالبيع على منصة"
+                      data-sale-mode-switch="allowPlatformSale"
+                      className={`min-h-[44px] inline-flex items-center px-1 ${
+                        !isPlatformsSubsystemActive ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                      }`}
+                    >
+                      <span
+                        className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                          isAllowPlatformToggleOn ? 'bg-cyan-600' : 'bg-slate-300'
+                        }`}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                            isAllowPlatformToggleOn ? 'translate-x-0' : '-translate-x-5'
+                          }`}
+                        />
+                      </span>
+                    </button>
+                  </div>
+                )}
+
+                {renderSettingRow(
+                  'السماح بالبيع المباشر للعميل',
+                  'السماح بإصدار فواتير البيع المباشر للعميل في نقطة البيع. عند إيقافه مع تفعيل البيع على منصة يُقصر البيع على المنصات فقط.',
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`text-xs font-bold ${
+                        isAllowDirectToggleOn ? 'ui-money-purchase' : 'text-[var(--text-secondary)]'
+                      }`}
+                    >
+                      {isAllowDirectToggleOn ? 'مفعّل' : 'متوقف'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSalesRules((prev) => ({
+                          ...prev,
+                          allowDirectSale: prev.allowDirectSale === false
+                        }))
+                      }
+                      role="switch"
+                      aria-checked={isAllowDirectToggleOn}
+                      aria-label="السماح بالبيع المباشر للعميل"
+                      data-sale-mode-switch="allowDirectSale"
+                      className="min-h-[44px] inline-flex items-center px-1 cursor-pointer"
+                    >
+                      <span
+                        className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                          isAllowDirectToggleOn ? 'bg-cyan-600' : 'bg-slate-300'
+                        }`}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                            isAllowDirectToggleOn ? 'translate-x-0' : '-translate-x-5'
+                          }`}
+                        />
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <SectionHeading title="الافتراضيات عند فتح شاشة البيع" withTopDivider />
+
+              {salesRules.defaultPlatformMissing && isAllowPlatformToggleOn && (
                 <div
                   role="alert"
                   className="flex items-center gap-2 py-1 text-xs font-bold ui-stock-low"
@@ -3688,7 +3818,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
               )}
 
-              {salesRules.defaultCustomerMissing && (
+              {salesRules.defaultCustomerMissing && isAllowDirectToggleOn && (
                 <div
                   role="alert"
                   className="flex items-center gap-2 py-1 text-xs font-bold ui-stock-low"
@@ -3701,8 +3831,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <div>
                 {renderSettingRow(
                   'وضع البيع عند فتح شاشة البيع',
-                  salesRules.platformsEnabled === false || salesRules.salesOnlyMode
-                    ? 'مع إيقاف المنصات تُفتح شاشة البيع دائمًا على البيع المباشر.'
+                  bothSaleModesDisabled
+                    ? 'كلا وضعي البيع معطّل حاليًا — لن تُحفظ فواتير جديدة حتى يتم تفعيل وضع بيع واحد على الأقل.'
+                    : !isAllowPlatformToggleOn && isAllowDirectToggleOn
+                    ? 'مع إيقاف البيع على منصة تُفتح شاشة البيع دائمًا على البيع المباشر.'
+                    : isAllowPlatformToggleOn && !isAllowDirectToggleOn
+                    ? 'مع إيقاف البيع المباشر تُفتح شاشة البيع دائمًا على البيع على منصة.'
                     : 'تحديد الوضع الافتراضي الذي تفتح عليه شاشة البيع (POS).',
                   <div className="flex flex-wrap items-center gap-1.5">
                     {([
@@ -3710,13 +3844,21 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       { id: 'direct', label: 'بيع مباشر' },
                       { id: 'platform', label: 'بيع منصات' }
                     ] as { id: DefaultSaleMode; label: string }[])
-                      .filter(
-                        (opt) =>
-                          opt.id !== 'platform' ||
-                          (salesRules.platformsEnabled !== false && !salesRules.salesOnlyMode)
-                      )
+                      .filter((opt) => {
+                        if (bothSaleModesDisabled) return false;
+                        if (opt.id === 'last') return isAllowPlatformToggleOn && isAllowDirectToggleOn;
+                        if (opt.id === 'platform') return isAllowPlatformToggleOn;
+                        if (opt.id === 'direct') return isAllowDirectToggleOn;
+                        return true;
+                      })
                       .map((opt) => {
-                        const active = salesRules.defaultSaleMode === opt.id;
+                        const effectiveDefaultBtn =
+                          isAllowPlatformToggleOn && !isAllowDirectToggleOn
+                            ? 'platform'
+                            : !isAllowPlatformToggleOn && isAllowDirectToggleOn
+                            ? 'direct'
+                            : salesRules.defaultSaleMode;
+                        const active = effectiveDefaultBtn === opt.id;
                         return (
                           <button
                             key={opt.id}
@@ -3737,7 +3879,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   </div>
                 )}
 
-                {salesRules.platformsEnabled !== false && !salesRules.salesOnlyMode &&
+                {isAllowPlatformToggleOn &&
                   renderSettingRow(
                     'المنصة في بيع المنصات',
                     'تحديد المنصة المختارة تلقائيًا عند الفتح وبعد حفظ كل فاتورة في وضع بيع المنصات.',
@@ -3962,7 +4104,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
               )}
             </div>
-          )}
+            );
+          })()}
 
           {(canManageDisplay || canManagePrint) && (
             <div className="space-y-4">
@@ -4094,49 +4237,52 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               {LATEST_ITEM_FIRST_SCREENS.map((screen) => {
                 const currentMap = normalizeLatestItemFirst(displaySettings.latestItemFirst);
                 const isEnabled = currentMap[screen.key];
-                return renderSettingRow(
-                  screen.label,
-                  screen.description,
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={`text-xs font-bold ${
-                        isEnabled ? 'ui-money-purchase' : 'text-[var(--text-secondary)]'
-                      }`}
-                    >
-                      {isEnabled ? 'مفعّل' : 'متوقف'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const prevMap = normalizeLatestItemFirst(displaySettings.latestItemFirst);
-                        setDisplaySettings({
-                          ...displaySettings,
-                          latestItemFirst: {
-                            ...prevMap,
-                            [screen.key]: !prevMap[screen.key]
-                          }
-                        });
-                      }}
-                      role="switch"
-                      aria-checked={isEnabled}
-                      aria-label={`ترتيب آخر صنف أولًا - ${screen.label}`}
-                      data-latest-item-first-switch={screen.key}
-                      className="min-h-[44px] inline-flex items-center px-1 cursor-pointer"
-                    >
+                return React.cloneElement(
+                  renderSettingRow(
+                    screen.label,
+                    screen.description,
+                    <div className="flex items-center gap-3">
                       <span
-                        className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                          isEnabled ? 'bg-cyan-600' : 'bg-slate-300'
+                        className={`text-xs font-bold ${
+                          isEnabled ? 'ui-money-purchase' : 'text-[var(--text-secondary)]'
                         }`}
                       >
-                        <span
-                          aria-hidden="true"
-                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                            isEnabled ? 'translate-x-0' : '-translate-x-5'
-                          }`}
-                        />
+                        {isEnabled ? 'مفعّل' : 'متوقف'}
                       </span>
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const prevMap = normalizeLatestItemFirst(displaySettings.latestItemFirst);
+                          setDisplaySettings({
+                            ...displaySettings,
+                            latestItemFirst: {
+                              ...prevMap,
+                              [screen.key]: !prevMap[screen.key]
+                            }
+                          });
+                        }}
+                        role="switch"
+                        aria-checked={isEnabled}
+                        aria-label={`ترتيب آخر صنف أولًا - ${screen.label}`}
+                        data-latest-item-first-switch={screen.key}
+                        className="min-h-[44px] inline-flex items-center px-1 cursor-pointer"
+                      >
+                        <span
+                          className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                            isEnabled ? 'bg-cyan-600' : 'bg-slate-300'
+                          }`}
+                        >
+                          <span
+                            aria-hidden="true"
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                              isEnabled ? 'translate-x-0' : '-translate-x-5'
+                            }`}
+                          />
+                        </span>
+                      </button>
+                    </div>
+                  ),
+                  { key: screen.key }
                 );
               })}
             </div>
@@ -4173,45 +4319,48 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               }
             ].map((item) => {
               const isEnabled = displaySettings[item.key] ?? true;
-              return renderSettingRow(
-                item.title,
-                item.description,
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`text-xs font-bold ${
-                      isEnabled ? 'ui-money-purchase' : 'text-[var(--text-secondary)]'
-                    }`}
-                  >
-                    {isEnabled ? 'مفعّل' : 'متوقف'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setDisplaySettings({
-                        ...displaySettings,
-                        [item.key]: !isEnabled
-                      })
-                    }
-                    role="switch"
-                    aria-checked={isEnabled}
-                    aria-label={item.title}
-                    data-pos-customer-display-switch={item.attr}
-                    className="min-h-[44px] inline-flex items-center px-1 cursor-pointer"
-                  >
+              return React.cloneElement(
+                renderSettingRow(
+                  item.title,
+                  item.description,
+                  <div className="flex items-center gap-3">
                     <span
-                      className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                        isEnabled ? 'bg-cyan-600' : 'bg-slate-300'
+                      className={`text-xs font-bold ${
+                        isEnabled ? 'ui-money-purchase' : 'text-[var(--text-secondary)]'
                       }`}
                     >
-                      <span
-                        aria-hidden="true"
-                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                          isEnabled ? 'translate-x-0' : '-translate-x-5'
-                        }`}
-                      />
+                      {isEnabled ? 'مفعّل' : 'متوقف'}
                     </span>
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDisplaySettings({
+                          ...displaySettings,
+                          [item.key]: !isEnabled
+                        })
+                      }
+                      role="switch"
+                      aria-checked={isEnabled}
+                      aria-label={item.title}
+                      data-pos-customer-display-switch={item.attr}
+                      className="min-h-[44px] inline-flex items-center px-1 cursor-pointer"
+                    >
+                      <span
+                        className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                          isEnabled ? 'bg-cyan-600' : 'bg-slate-300'
+                        }`}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                            isEnabled ? 'translate-x-0' : '-translate-x-5'
+                          }`}
+                        />
+                      </span>
+                    </button>
+                  </div>
+                ),
+                { key: item.key }
               );
             })}
           </div>
@@ -4228,6 +4377,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
               تحكّم مركزي على مستوى المنشأة في تفعيل مبيعات ووظائف المنصات أو تشغيل البرنامج بوضع البيع المباشر فقط. لا تُحذف أي بيانات أو فواتير سابقة عند الإيقاف.
             </p>
+            {isDraftPlatformsOn && salesRules.allowPlatformSale === false && (
+              <div className="p-3 rounded-xl border border-amber-300 bg-amber-50 text-xs font-bold text-amber-900">
+                ملاحظة: شاشات وتقارير وتحصيل المنصات مفعّلة، بينما مفتاح «السماح بالبيع على منصة» متوقف حاليًا في قسم «البيع ونقطة البيع».
+              </div>
+            )}
             <div>
               {renderSettingRow(
                 'تفعيل مبيعات ووظائف المنصات',

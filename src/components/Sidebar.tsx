@@ -1030,6 +1030,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       `}</style>
       {/* 1. الشريط الجانبي الثابت على الديسكتوب والتابلت (>= 768px): 64px في وضع الطي أو 288px */}
       <aside
+        data-app-sidebar="true"
         className={`no-print hidden md:flex flex-col ${
           isCollapsed ? 'w-16 min-w-16' : 'w-72 min-w-72'
         } bg-[var(--sidebar-bg)] text-[var(--sidebar-text)] border-inline-end border-[var(--sidebar-border)] shrink-0 min-h-[calc(100vh/var(--app-zoom,1)-2.5rem)] max-h-[calc(100vh/var(--app-zoom,1))] sticky top-0 z-20 shadow-md transition-all duration-200`}

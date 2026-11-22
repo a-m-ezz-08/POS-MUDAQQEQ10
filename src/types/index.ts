@@ -1847,6 +1847,13 @@ export interface SalesRules {
   allowZeroPriceSale: boolean;
   allowBelowCostSale: boolean;
   platformAlwaysCredit: boolean;
+  /** السماح بالبيع على منصة (مفتاح مستقل في إعدادات البيع) */
+  allowPlatformSale?: boolean;
+  /** السماح بالبيع المباشر للعميل (مفتاح مستقل في إعدادات البيع) */
+  allowDirectSale?: boolean;
+  /** القيم الفعلية المحسوبة بعد دمج حالة المنصات ووضع البيع فقط */
+  effectiveAllowPlatformSale?: boolean;
+  effectiveAllowDirectSale?: boolean;
   platformsEnabled?: boolean;
   salesOnlyMode?: boolean;
   effectiveSaleMode?: DefaultSaleMode;
